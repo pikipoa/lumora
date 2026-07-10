@@ -172,6 +172,26 @@ Summary {
 }
 ```
 - `edited`：人間がAI生成文をベースに書き換えた状態（タグと同様、提案→確定の思想を要約にも適用）
+- **再実行時の挙動（実装確定・2026-07-10）**：既存のSummaryがある会話で再度AI分析を実行した場合、既存行のbodyを上書きし`status`を`proposed`に戻す（履歴は残さない。論点Cの「上書きのみ」方針通り）
+
+### AiJob（AI分析ジョブ）
+```
+AiJob {
+  id: uuid
+  user_id: uuid
+  conversation_id: uuid
+  status: "queued" | "running" | "done" | "error"
+  error: string | null
+  result_summary: jsonb | null   // 生成件数・破棄件数・トークン使用量などの実行結果
+  created_at: datetime
+  started_at: datetime | null
+  finished_at: datetime | null
+}
+```
+**実行方式（実装確定・2026-07-10）**：インポート時の自動実行はせず、会話一覧（Inbox）画面から会話ごとに人間が手動でボタンを押して実行する。
+理由：初回インポートは数百件規模になりうり、自動実行だと想定外のAPIコスト急増を招くため。まず手動選択式で開始し、コスト実測後にPhase2で自動化の要否を判断する。
+
+**マーカー抽出時の検証（実装確定）**：AIが提案する`quoted_text`は元メッセージ本文からの完全一致部分文字列でなければならない。一致しない提案は幻覚（hallucination）とみなし、DBに保存せず破棄する（件数のみ`AiJob.result_summary`に記録）。
 
 ---
 

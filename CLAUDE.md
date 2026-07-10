@@ -10,6 +10,8 @@
 - **PC利用の実現方式**：Expo Web（react-native-web）で同一コードベースからWebビルドを出力し、ブラウザ経由でPCからアクセスする。デスクトップ専用アプリ（Electron等）は作らない
 - バックエンド/DB：Supabase（Postgres + Auth + Storage）
 - AI処理：Supabase Edge Functionsからサーバーサイドで各社AI APIを呼び出す非同期ジョブとして実装
+  - **使用モデル（決定・2026-07-10）**：Claude Sonnet 5（`claude-sonnet-5`）をデフォルトとし、Edge Function環境変数`LUMORA_AI_MODEL`で切替可能にする（コード内にハードコードしない）。理由：要約・Topicタグは軽いタスクだが、Conceptタグ（抽象化ラベル）や「タグ付けに値する会話か」のスコープ判定はニュアンスのある判断が必要なため、まずは精度優先で開始し、コスト最適化はPhase2で実測してから判断する
+  - **実行方式（決定・2026-07-10）**：インポート時の自動実行はせず、会話一覧（Inbox）画面から会話単位で人間が手動起動する。理由：初回インポートは数百件規模になりうり、自動実行はAPIコスト急増のリスクがあるため（詳細：`data-model.md`「AiJob」）
 - 全文検索：Postgres標準の全文検索機能から開始（専用検索エンジンへの移行は必要になってから判断）
 - プッシュ通知：Expo Notifications（レビュー待ち通知）
 

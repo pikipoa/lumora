@@ -18,7 +18,15 @@ export default function LoginScreen() {
   async function signIn() {
     setBusy(true);
     setError(null);
-    const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    const trimmedEmail = email.trim();
+    // 接続先の取り違え調査用（publishable keyは公開前提の値なのでURL出力は問題ない）
+    console.log(
+      `[login] email="${trimmedEmail}" supabaseUrl=${process.env.EXPO_PUBLIC_SUPABASE_URL}`,
+    );
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: trimmedEmail,
+      password,
+    });
     setBusy(false);
     if (authError) {
       setError(`ログインに失敗しました: ${authError.message}`);
@@ -33,6 +41,9 @@ export default function LoginScreen() {
         <ThemedText type="title">Lumora</ThemedText>
         <ThemedText type="small">
           Supabaseダッシュボード（Authentication → Users）で作成したアカウントでログインします
+        </ThemedText>
+        <ThemedText type="small" style={styles.connInfo}>
+          接続先: {process.env.EXPO_PUBLIC_SUPABASE_URL ?? '(未設定)'}
         </ThemedText>
 
         <TextInput
@@ -95,4 +106,5 @@ const styles = StyleSheet.create({
   },
   buttonText: { color: '#fff', fontWeight: '600' },
   error: { color: '#D93025' },
+  connInfo: { opacity: 0.6 },
 });

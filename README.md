@@ -1,56 +1,42 @@
-# Welcome to your Expo app 👋
+# Knowledge OS
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+AIとの対話を「消費」から「資産」に変えるナレッジOS。
+ChatGPT / Gemini / Claude / Perplexity との会話を取り込み、タグ・要約・マーカーで知識資産として蓄積・検索するアプリ。
 
-## Get started
+- 仕様書：[docs/VISION.md](docs/VISION.md) / [docs/import-spec.md](docs/import-spec.md) / [docs/data-model.md](docs/data-model.md) / [docs/ux-flow-and-screens.md](docs/ux-flow-and-screens.md)
+- 実装判断ルール：[CLAUDE.md](CLAUDE.md)
 
-1. Install dependencies
+## 技術スタック
 
-   ```bash
-   npm install
-   ```
+- React Native (Expo) — iOS / Android / Web
+- Supabase — Postgres + Auth + Storage + Edge Functions
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## セットアップ
 
 ```bash
-npm run reset-project
+npm install
+
+# Supabase接続情報を設定（ダッシュボード → Project Settings → API）
+cp .env.example .env   # → 実際のURL/anon keyを記入
+
+npx expo start         # w: Web / a: Android / Expo Goでスマホ実機
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## テスト
 
-### Other setup steps
+```bash
+npm test   # インポートパーサーの単体テスト（jest）
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## データの扱いについて（重要）
 
-## Learn more
+- インポートされた会話データは**Supabase（クラウド）に保存**される
+- インポート元の原本ファイル（ZIP/JSON）は**端末ローカルのみ**に保持され、クラウドには送信されない
+- AI要約・タグ・重要箇所の生成時には、**会話本文がSupabase Edge Functions経由で外部AI APIに送信される**（対象範囲は該当機能の実装時に本セクションへ明記する）
 
-To learn more about developing your project with Expo, look at the following resources:
+## ディレクトリ構成
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```
+src/import/    インポート層（形式判定＋4社パーサー、純粋TS・アプリ本体から独立）
+docs/          プロダクト仕様書
+```

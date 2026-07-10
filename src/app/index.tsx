@@ -36,11 +36,11 @@ export default function HomeScreen() {
             <ThemedText type="smallBold">📂 会話一覧（Inbox）</ThemedText>
             <ThemedText type="small">インポート済み会話の確認とAI分析の実行</ThemedText>
           </Pressable>
+          <Pressable style={styles.menuItem} onPress={() => router.push('/projects/index')}>
+            <ThemedText type="smallBold">🗂️ プロジェクト一覧</ThemedText>
+            <ThemedText type="small">Realm・テーマの整理とレビュー</ThemedText>
+          </Pressable>
         </ThemedView>
-
-        <ThemedText type="small" style={styles.note}>
-          Realm（プロジェクト）一覧・レビュー画面は今後のステップで追加されます
-        </ThemedText>
 
         <Pressable onPress={() => supabase.auth.signOut()}>
           <ThemedText type="small" style={styles.signOut}>

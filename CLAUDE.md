@@ -106,3 +106,4 @@ Phase1機能の依存関係に基づく（詳細：`ux-flow-and-screens.md`関�
 - `import-spec.md`：4社のインポート形式仕様
 - `data-model.md`：データモデル定義
 - `ux-flow-and-screens.md`：UXフロー・画面遷移
+- `infra.md`：開発インフラ（GitHub/Vercel/Sentry等）の採否判断

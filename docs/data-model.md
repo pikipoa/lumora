@@ -24,6 +24,7 @@ Knowledge OS — AIチャット統合ナレッジアプリ
 ```
 Project {
   id: uuid
+  user_id: uuid             // 所有者（auth.usersへの外部キー）
   name: string            // 例："古着ダンジョン"
   description: string | null
   created_at: datetime
@@ -45,6 +46,7 @@ Theme {
 ```
 Conversation {
   id: uuid
+  user_id: uuid              // 所有者（Inbox状態でもproject_id経由せず判定できるよう直接保持）
   source: "chatgpt" | "gemini" | "claude" | "perplexity"
   source_conversation_id: string | null
   title: string
@@ -54,7 +56,8 @@ Conversation {
   updated_at: datetime | null
   model: string | null
   imported_at: datetime      // Knowledge OSへの取り込み日時
-  raw_ref: string
+  import_source_filename: string | null   // 例："conversations.json"（デバッグ・サマリー表示用、内容は保持しない）
+  import_batch_id: uuid      // 同一インポート操作をグルーピングするID
 }
 ```
 
@@ -75,12 +78,20 @@ Message {
 ```
 Tag {
   id: uuid
+  user_id: uuid             // 所有者（auth.usersへの外部キー）
+  tag_type: "topic" | "concept"   // Topic(何について)/Concept(何の概念か)。Roleは別枠(Marker.role_tag参照)
   name: string              // 例："UI"（"#"は表示側で付与、DB上は付けない）
   created_at: datetime
 }
 ```
-**スコープ判断（デフォルト案）**：タグはプロジェクトを横断するグローバル存在とする。
+**スコープ判断（訂正）**：タグは「そのユーザーの全プロジェクトを横断するグローバル」であり、**他ユーザーとは共有しない**。
 理由：「#AI」「#ClaudeCode」のような複数プロジェクトで共通利用したいタグがある一方、プロジェクト固有のタグ（例：「#闘着場」）も同じ仕組みで扱える方がシンプル。プロジェクトスコープに縛ると、プロジェクトをまたいだ横断検索（当初の課題認識の核）ができなくなる。
+※以前の版では「グローバル」とだけ記載していたが、マルチユーザー対応の検討により「ユーザー単位でグローバル」と明確化した。他ユーザーのタグ候補が既存タグマッチングに混ざることはない。
+
+**タグの3分類（決定）**：
+- **Topic**（何について）：例 `#ゲーム` `#AI` `#教育`。素直な話題分類
+- **Concept**（何の概念か）：例 `#社会変化` `#パラダイムシフト`。BAS的な抽象化ラベル。AIの強みが最も出る分類軸
+- **Role**（自分の知識内での役割）：例 `idea/hypothesis/decision/strategy/learning`。この3つ目は語彙が自由に増えるTopic/Conceptとは性質が異なり（固定の小さな選択肢）、Tagテーブルではなく`Marker.role_tag`という専用enumフィールドとして実装する（下記Marker参照）
 
 ### ConversationTag（会話とタグの中間テーブル）
 **このプロダクトの思想的な核**：AI提案と人間確定を1レコード内で区別する
@@ -100,6 +111,23 @@ ConversationTag {
 - 人間が却下：`status: rejected`（削除ではなく記録を残す＝「なぜ却下したか」の履歴的価値。BASの「判断の反転履歴」思想と同じ）
 - 人間が最初から追加：`proposed_by: human, status: confirmed`（提案フローを経ない）
 
+### MarkerTag（発見物とタグの中間テーブル）
+```
+MarkerTag {
+  id: uuid
+  marker_id: uuid
+  tag_id: uuid              // tag_type: topic/conceptのみ（roleはMarker.role_tagで扱う）
+  status: "proposed" | "confirmed" | "rejected"
+  proposed_by: "ai" | "human"
+  confirmed_at: datetime | null
+  created_at: datetime
+}
+```
+**ConversationTagとの役割分担（決定）**：両方残す。
+- `ConversationTag`：会話（Chronicle）全体への大まかなTopic/Conceptタグ。「この会話は何についてか」を横断検索できるようにする
+- `MarkerTag`：個々の発見物（Marker）単位への正確なTopic/Conceptタグ。1つの会話の中でトピックが混ざっていても、発見物ごとに正確なタグが付けられる（論点Aで「Themeの1:1固定を、タグで吸収する」と決めた話が、会話単位よりさらに正確に実現される）
+- 状態遷移の考え方（proposed→confirmed/rejected）はConversationTagと共通
+
 ### Marker（マーカー／重要箇所）
 ```
 Marker {
@@ -109,12 +137,14 @@ Marker {
   quoted_text: string       // マーカーを引いた原文の抜粋
   color: "pink" | "green" | "yellow" | "blue" | "red" | null
                              // confirmed時は必須。proposed（AI提案・未確定）時はnull許容
+  role_tag: "idea" | "hypothesis" | "decision" | "strategy" | "learning" | null
+                             // Roleタグ（自分の知識内での役割）。固定enumのためTagテーブルとは別枠
   status: "proposed" | "confirmed" | "rejected"   // AI抽出の重要箇所も「提案」として扱う
   proposed_by: "ai" | "human"
   created_at: datetime
 }
 ```
-Phase1機能「重要箇所抽出」はAIがMarkerを`proposed`状態で自動生成する機能（この時点では`color: null`）。
+Phase1機能「重要箇所抽出」はAIがMarkerを`proposed`状態で自動生成する機能（この時点では`color: null`, `role_tag`はAIが推定して提案可）。
 **色の選択＝確定操作そのもの**：人間が5色（蛍光ピンク/グリーン/イエロー/ブルー/レッド）のいずれかを選ぶ行為が、そのままマーカーを`confirmed`にする操作を兼ねる（詳細はux-flow-and-screens.md）。
 
 ### Memo（メモ）
@@ -151,7 +181,8 @@ Summary {
 Project 1 ── N Theme
 Theme   1 ── N Conversation
 Conversation 1 ── N Message
-Conversation N ── N Tag  (via ConversationTag、status付き)
+Conversation N ── N Tag  (via ConversationTag、status付き。tag_type: topic/conceptのみ)
+Marker  N ── N Tag  (via MarkerTag、status付き。tag_type: topic/conceptのみ)
 Conversation 1 ── N Marker
 Conversation 1 ── N Summary   ※Phase1は基本1件運用を想定（再生成時は上書き or 履歴保持は要検討）
 Marker  1 ── N Memo
@@ -179,3 +210,40 @@ Conversation 1 ── N Memo（target_type="conversation"の場合）
 
 ### 論点C：Summaryの再生成時の履歴（Phase1デフォルト）
 Phase1は上書きのみとし、履歴テーブル化はしない。VISION.mdの「知識の変化追跡」機能は別途Phase2で本格設計する際にまとめて対応する（Summary単体で先走って履歴化しない）。
+
+### 論点F：タグの3分類とMarkerTagの新設（決定）
+「Lumoraのタグ体系」検討により、以下が確定：
+- タグはTopic（何について）/Concept（何の概念か）の2種類に分かれる（`Tag.tag_type`）
+- Role（idea/hypothesis/decision/strategy/learning）は自由語彙ではなく固定小選択肢のため、Tagとは別に`Marker.role_tag`として実装
+- タグの主戦場は会話単位ではなく発見物（Marker）単位。理由：会話のタイトルと内容が途中で変容するケースが多く、会話全体への一括タグ付けでは不正確になるため。`MarkerTag`を新設し、`ConversationTag`（会話全体への大まかなタグ）と併存させる
+
+---
+
+## 4. 認証とマルチユーザー対応（決定：最初から入れる）
+
+**結論：user_idとRLS（行レベルセキュリティ）は、Phase1の実装当初から組み込む。** Phase1の実利用者がピキさん1人だけであっても、後からの追加ではなく最初から設計に含める。
+
+### 理由
+- VISION.mdで「将来的にApp Store/Google Playでの販売も視野に入れる」と明記されている以上、マルチユーザー化は「起きるかもしれない話」ではなく「計画済みの話」である
+- user_id列やRLSポリシーを後から追加するのは、既存データへのバックフィル・全クエリの見直しを伴う根幹的な変更であり、コストが非常に高い
+- Supabaseはauth機能とRLSがネイティブに統合されているため、最初から入れておく追加コストはごく小さい（テーブルに列を1つ足し、ポリシーを数本書くだけ）
+
+### user_idの持たせ方（実装確定：全テーブルに直接付与）
+
+**全テーブル（`Project` / `Theme` / `Conversation` / `Message` / `Tag` / `ConversationTag` / `MarkerTag` / `Marker` / `Memo` / `Summary` / `ImportBatch`）が`user_id`列を直接持ち、RLSは全テーブル共通の「own rows only」で判定する。**
+
+```sql
+-- 全テーブル共通（実装済みマイグレーション準拠）
+CREATE POLICY "own rows" ON <table>
+  FOR ALL
+  USING (user_id = auth.uid())
+  WITH CHECK (user_id = auth.uid());
+```
+
+※検討過程では「子テーブルは親をJOINで辿って判定する」案もあったが、実装時（2026-07-10のセッション）に以下の理由で全テーブル直接付与に確定した：
+- RLSポリシーが全テーブルで同一形になり、テーブル追加時の判断（直接持つか親を辿るか）が不要になる
+- JOINベースのRLSは行ごとにサブクエリ評価が走り、メッセージ数が多い本アプリではむしろ不利
+- `user_id`は`default auth.uid()`で自動設定されるため、アプリ側の書き込みコードに負担がない
+
+### 未分類（Inbox）会話の所有者判定について
+`Conversation.project_id: null`（Inbox状態）の会話は、Projectを経由した所有者判定ができない。このため、Conversationには`user_id`を直接持たせている（上記エンティティ定義済み）。ConversationのRLSは「project_id経由」ではなく「user_id直接」で判定する（Inboxかどうかに関わらず一貫した判定になる）。

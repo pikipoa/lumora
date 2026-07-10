@@ -24,7 +24,8 @@ Conversation {
   updated_at: datetime | null
   model: string | null     // わかる範囲で（GPT-5.4, Claude Sonnet等）
   messages: Message[]
-  raw_ref: string          // 元ファイルへの参照（デバッグ用、原本は保持しない設計も検討）
+  import_source_filename: string | null   // 例："conversations.json"（デバッグ・サマリー表示用、内容は保持しない）
+  import_batch_id: string   // 同一インポート操作をグルーピングするID
 }
 
 Message {
@@ -36,6 +37,13 @@ Message {
   citations: string[] | null  // Perplexity等、引用元URLがある場合
 }
 ```
+
+**原本ファイル（ZIP/JSON）の保持方針（決定・修正版）**：原本はサーバー（Supabase）には一切送らないが、端末のローカルファイル領域には`import_batch_id`単位でキャッシュとして残す（例：`imports_raw/{import_batch_id}.zip`）。
+
+- 理由：パーサーに後からバグが見つかった場合、ローカルキャッシュがあれば再エクスポートなしで再パースできる。「サーバーに送らない」という当初の原則（生データをクラウドに置かない）は維持したまま、再処理性を確保できる
+- クラウド側のデータモデルには影響しない（このキャッシュは端末ローカルの実装詳細であり、Supabaseには存在しない）
+- キャッシュが失われている場合（アプリ再インストール・端末変更等）は、該当サービスから再エクスポートしてもらう
+- 保持期間はPhase1では無期限とする（生JSON/ZIPは数MB規模のため容量負荷は小さい）。ストレージ整理機能はPhase2以降で検討
 
 **方針**：各社の生データ構造の違いはインポート層で吸収し、アプリ本体は上記の共通モデルしか見ない。これにより将来5社目が増えても、パーサーを1つ追加するだけで済む。
 

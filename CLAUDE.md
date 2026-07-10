@@ -7,16 +7,32 @@
 ## 0. 技術スタック（確定）
 
 - フロントエンド：React Native (Expo)。将来的なApp Store/Google Play配信を見据える
+- **PC利用の実現方式**：Expo Web（react-native-web）で同一コードベースからWebビルドを出力し、ブラウザ経由でPCからアクセスする。デスクトップ専用アプリ（Electron等）は作らない
 - バックエンド/DB：Supabase（Postgres + Auth + Storage）
 - AI処理：Supabase Edge Functionsからサーバーサイドで各社AI APIを呼び出す非同期ジョブとして実装
 - 全文検索：Postgres標準の全文検索機能から開始（専用検索エンジンへの移行は必要になってから判断）
 - プッシュ通知：Expo Notifications（レビュー待ち通知）
 
-**実装前の必須スパイク**：マーカーの範囲調整UI（テキストをドラッグして選択範囲を伸縮する操作）は、React Nativeに標準のSelection/Range API相当が無いため、実装難易度が通常より高い。Phase1実装順序⑤（マーカー確定UI）に着手する前に、以下いずれかの方式で小さな技術検証を行い、方式を確定してから本実装に入ること：
+### 開発インフラ（採否判断）
+
+| サービス | 採否 | 理由 |
+|---|---|---|
+| GitHub | 採用 | Claude Codeでの開発・コード履歴管理に必須 |
+| Vercel | 採用 | Expo Webビルドのホスティング先 |
+| Sentry | 採用 | クライアント側4社パーサー・マーカー範囲調整UIという技術リスクの高い箇所のエラーを可視化するため |
+| Cloudflare / UptimeRobot / PostHog / Resend / Better Stack | Phase1では見送り | Lumoraは認証必須の個人アプリであり、公開ストア（古着ダンジョン）とは脅威モデル・利用規模が異なる。公開LP開設、不特定多数へのサインアップ受付、他ユーザーの実利用開始など、それぞれ再検討のトリガー条件が発生してから導入する |
+
+**実装前の必須スパイク**：マーカーの範囲調整UI（テキストをドラッグして選択範囲を伸縮する操作）は、React Nativeに標準のSelection/Range API相当が無いため、実装難易度が通常より高い。**これはiOS/Android（ネイティブ）にのみ該当する**。Web版（Expo Web＝PC利用時）はブラウザ標準のSelection/Range APIをそのまま使えるため、この問題自体が発生しない。Phase1実装順序⑤（マーカー確定UI）に着手する前に、ネイティブ版について以下いずれかの方式で小さな技術検証を行い、方式を確定してから本実装に入ること：
 - (a) `react-native-gesture-handler`等によるカスタムテキスト範囲選択コンポーネントの自作
 - (b) 会話本文表示・マーカー付け部分のみWebViewで実装し、RNシェルとpostMessageで連携するハイブリッド構成
 
 判断に迷う場合はピキさんに確認すること（VISION.md「既知の技術的リスク」参照）。
+
+**認証・マルチユーザー対応は最初から実装する**：Phase1の実利用者が1人であっても、user_id列とRLS（行レベルセキュリティ）は初期実装から組み込む。後から追加すると既存データのバックフィルと全クエリの見直しが必要になり、根幹的な変更になるため（詳細：`data-model.md`「4. 認証とマルチユーザー対応」）。新しいテーブルを追加する際は、そのテーブルが「所有者を直接持つべきか」「親を辿って判定すべきか」を必ず判断してから実装すること。
+
+**ブランド命名はUI表示層のみに適用し、データモデルには持ち込まない**：アプリ名はLumora、UI表示名はProject→Realm、Theme→Wing、Conversation→Chronicle、`proposed`状態→**Ore**、`confirmed`/`edited`状態→Arcaという対応（詳細：`VISION.md`「8. ブランド世界観・命名」）。**Beaconは`proposed`状態のラベルではない**（検討初期の案から訂正済み）。Beaconは「AIによる関連発見機能」を指す言葉としてPhase2バックログに予約されているため、Phase1の実装でBeaconという語を`proposed`状態の意味で使わないこと。データベースのテーブル名・フィールド名・API・変数名は引き続き`Project`/`Theme`/`Conversation`/`Tag`/`Marker`/`Summary`/`status: proposed/confirmed`のまま実装すること。ブランド名の変換はフロントエンドの表示コンポーネント（i18n/文言定義ファイル等）に閉じ込め、バックエンド・DB層のコードにブランド名を持ち込まない。
+
+**タグは3種類、主戦場はMarker単位**：Topic/Concept（自由語彙、`Tag.tag_type`で区別）とRole（固定enum、`Marker.role_tag`）は別の実装。タグ付けの主なUIフローは会話（Conversation/Chronicle）全体ではなく個々の発見物（Marker）単位に対して行う。`ConversationTag`（会話全体への大まかなタグ）と`MarkerTag`（発見物単位の正確なタグ）は両方実装し、削除・統合しないこと（詳細：`data-model.md`「論点F」）。
 
 ---
 
@@ -31,12 +47,12 @@
 ## 2. 実装上の判断原則
 
 ### 2-1. Proposed/Confirmedの状態管理は妥協しない
-- Tag / Summary / Marker の3つは必ず`proposed → confirmed/rejected`の状態遷移を経る
+- Tag（ConversationTag/MarkerTag両方） / Summary / Marker はすべて必ず`proposed → confirmed/rejected`の状態遷移を経る
 - **一括承認ボタンは実装しない**（Phase1のNon-goalとして明示的に決定済み）。「全部確認する手間を減らしたい」という誘惑があっても、仕様書の決定を優先する
 - rejectedは論理削除として扱い、物理削除しない（判断履歴として保持する設計思想のため）
 
 ### 2-2. 思弁的な機能を先回りして実装しない
-- VISION.mdの「Phase1で扱わないこと」に明記された機能（会話間リンク、色の凡例機能、要約履歴管理等）は、指示がない限り実装しない
+- VISION.mdの「Phase1で扱わないこと」に明記された機能（会話間リンク、色の凡例機能、要約履歴管理、Beacon＝関連発見機能、BAS Scan、Web記事等への入力範囲拡張等）は、指示がない限り実装しない
 - 「ついでに作っておいた方が良さそう」という判断でスコープを広げない。必要になった時点で仕様書に追記してから着手する
 
 ### 2-3. デバイス分岐はフロントエンドのみで吸収する
@@ -62,11 +78,11 @@ Phase1機能の依存関係に基づく（詳細：`ux-flow-and-screens.md`関�
 ```
 ① インポート（4社対応、パーサーの安定性優先）
    ↓
-② データモデル実装（Project/Theme/Conversation/Tag/Marker/Memo/Summary）
+② データモデル実装（Project/Theme/Conversation/Tag/MarkerTag/ConversationTag/Marker/Memo/Summary）
    ↓
 ③ AI要約生成・重要箇所抽出（AI処理のバックエンド）
    ↓
-④ タグ候補生成＋確定UI（proposed→confirmedフロー）
+④ タグ候補生成＋確定UI（proposed→confirmedフロー。Topic/Concept=MarkerTag中心、Role=Marker.role_tag）
    ↓
 ⑤ マーカー確定UI（範囲調整＋色選択、デバイス別）
    ↓

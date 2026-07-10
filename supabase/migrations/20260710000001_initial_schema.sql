@@ -20,6 +20,9 @@ create type marker_color as enum ('pink', 'green', 'yellow', 'blue', 'red');
 create type proposer_type as enum ('ai', 'human');
 create type message_role as enum ('user', 'assistant');
 create type memo_target_type as enum ('conversation', 'marker');
+-- タグ3分類のうちTopic/Concept（自由語彙）。Role（固定小選択肢）はTagではなくmarkers.role_tag
+create type tag_type as enum ('topic', 'concept');
+create type marker_role_tag as enum ('idea', 'hypothesis', 'decision', 'strategy', 'learning');
 
 -- ========== tables ==========
 
@@ -70,8 +73,9 @@ create table conversations (
   model text,
   imported_at timestamptz not null default now(),
   import_batch_id uuid references import_batches (id) on delete set null,
-  -- 端末ローカルの原本キャッシュへの参照（例：imports_raw/{batch_id}.zip）。クラウドには原本を置かない
-  raw_ref text not null default ''
+  -- 元ファイル名（デバッグ・サマリー表示用、内容は保持しない）。
+  -- 原本はimport_batch_id単位で端末ローカルにのみキャッシュされ、クラウドには置かない
+  import_source_filename text
 );
 
 create table messages (
@@ -92,10 +96,12 @@ create table messages (
 create table tags (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
-  -- "#"はDB上では付けない（表示側で付与）。タグはプロジェクト横断のグローバル存在
+  -- "#"はDB上では付けない（表示側で付与）。タグは「ユーザー単位でグローバル」（プロジェクト横断・他ユーザーとは非共有）
   name text not null,
+  -- Topic（何について）/ Concept（何の概念か）。Role（固定小選択肢）はmarkers.role_tagで扱う
+  tag_type tag_type not null,
   created_at timestamptz not null default now(),
-  unique (user_id, name)
+  unique (user_id, name, tag_type)
 );
 
 -- このプロダクトの思想的な核：AI提案と人間確定を1レコード内で区別する
@@ -122,8 +128,23 @@ create table markers (
   color marker_color,
   status review_status not null default 'proposed',
   proposed_by proposer_type not null,
+  -- Roleタグ（自分の知識内での役割）。固定enumのためTagテーブルとは別枠。任意項目（スキップ可）
+  role_tag marker_role_tag,
   created_at timestamptz not null default now(),
   constraint confirmed_marker_has_color check (status <> 'confirmed' or color is not null)
+);
+
+-- 発見物（Marker）単位のTopic/Conceptタグ。タグ付けの主戦場（ConversationTagは会話全体への大まかな分類として併存）
+create table marker_tags (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  marker_id uuid not null references markers (id) on delete cascade,
+  tag_id uuid not null references tags (id) on delete cascade,
+  status review_status not null default 'proposed',
+  proposed_by proposer_type not null,
+  confirmed_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (marker_id, tag_id)
 );
 
 create table memos (
@@ -157,6 +178,8 @@ create index idx_conversation_tags_conversation on conversation_tags (conversati
 create index idx_conversation_tags_tag on conversation_tags (tag_id);
 create index idx_markers_conversation on markers (conversation_id);
 create index idx_markers_message on markers (message_id);
+create index idx_marker_tags_marker on marker_tags (marker_id);
+create index idx_marker_tags_tag on marker_tags (tag_id);
 create index idx_memos_target on memos (target_type, target_id);
 create index idx_summaries_conversation on summaries (conversation_id);
 -- ⑥横断検索用の全文検索インデックスはここでは張らない（日本語検索方式を⑥着手時に判断）
@@ -170,6 +193,7 @@ alter table messages enable row level security;
 alter table tags enable row level security;
 alter table conversation_tags enable row level security;
 alter table markers enable row level security;
+alter table marker_tags enable row level security;
 alter table memos enable row level security;
 alter table summaries enable row level security;
 
@@ -182,5 +206,6 @@ create policy "own rows" on messages for all using (user_id = auth.uid()) with c
 create policy "own rows" on tags for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "own rows" on conversation_tags for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "own rows" on markers for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "own rows" on marker_tags for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "own rows" on memos for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "own rows" on summaries for all using (user_id = auth.uid()) with check (user_id = auth.uid());

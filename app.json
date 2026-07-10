@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "knowledge-os",
-    "slug": "knowledge-os",
+    "name": "Lumora",
+    "slug": "lumora",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "knowledgeos",
+    "scheme": "lumora",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon"

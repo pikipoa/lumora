@@ -32,6 +32,10 @@ export default function HomeScreen() {
             <ThemedText type="smallBold">📥 会話をインポート</ThemedText>
             <ThemedText type="small">ChatGPT / Gemini / Claude / Perplexity</ThemedText>
           </Pressable>
+          <Pressable style={styles.menuItem} onPress={() => router.push('/inbox')}>
+            <ThemedText type="smallBold">📂 会話一覧（Inbox）</ThemedText>
+            <ThemedText type="small">インポート済み会話の確認とAI分析の実行</ThemedText>
+          </Pressable>
         </ThemedView>
 
         <ThemedText type="small" style={styles.note}>

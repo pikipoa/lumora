@@ -34,7 +34,11 @@ npm test   # インポートパーサーの単体テスト（jest）
 
 - インポートされた会話データは**Supabase（クラウド）に保存**される
 - インポート元の原本ファイル（ZIP/JSON）は**端末ローカルのみ**に保持され、クラウドには送信されない
-- AI要約・タグ・重要箇所の生成時には、**会話本文がSupabase Edge Functions経由で外部AI APIに送信される**（対象範囲は該当機能の実装時に本セクションへ明記する）
+- **AI分析の実行時（会話一覧の「AI分析」ボタン、手動選択式）**、以下がSupabase Edge Function経由で**Anthropic Claude API（api.anthropic.com）に送信される**：
+  - 対象会話のタイトルと全メッセージ本文
+  - ユーザーの既存タグ名の一覧（既存タグ優先マッチングのため）
+  - それ以外（他の会話・アカウント情報等）は送信されない
+- 使用モデルは`claude-sonnet-5`（Edge Function環境変数`LUMORA_AI_MODEL`で切替可能）。APIキーはEdge Functionのsecretとしてサーバー側のみに保存される
 
 ## ディレクトリ構成
 

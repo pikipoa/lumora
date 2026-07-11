@@ -188,6 +188,13 @@ export default function ConversationDetailScreen() {
     if (Platform.OS === 'web') window.getSelection()?.removeAllRanges();
   }
 
+  // Web: このボタンへのmousedownでブラウザがテキスト選択を解除してしまい、selectionchange→
+  // pendingSelectionがnullになった状態でonPressが呼ばれて「範囲が消えて何も起きない」ように
+  // 見えるバグがあった。mousedownの既定動作（選択解除）を止めることで、選択を保持したまま
+  // クリックできるようにする（PressablePropsの型にonMouseDownが無いためobjectとして渡す）。
+  const preventSelectionLoss: object =
+    Platform.OS === 'web' ? { onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() } : {};
+
   // 既存マーカーをタップ→そのマーカーの現在の範囲をブラウザのネイティブ選択として復元する。
   // これにより表示されるドラッグハンドルで、そのまま範囲を左右に微調整できる（「引いた後の範囲変更」）。
   function startEditingMarker(messageId: string, layer: MarkerLayer) {
@@ -524,6 +531,7 @@ export default function ConversationDetailScreen() {
                 <Pressable
                   key={c.key}
                   style={[styles.swatch, { backgroundColor: c.hex }]}
+                  {...preventSelectionLoss}
                   onPress={() => confirmPendingMarker(c.key)}
                   testID={`marker-color-${c.key}`}
                 />
@@ -531,13 +539,19 @@ export default function ConversationDetailScreen() {
               {editingMarker && (
                 <Pressable
                   style={styles.smallButtonOutline}
+                  {...preventSelectionLoss}
                   onPress={() => rejectMarker(editingMarker.id)}
                   testID="reject-marker-button"
                 >
                   <ThemedText type="small">却下</ThemedText>
                 </Pressable>
               )}
-              <Pressable style={styles.smallButtonOutline} onPress={cancelPendingMarker} testID="cancel-new-marker">
+              <Pressable
+                style={styles.smallButtonOutline}
+                {...preventSelectionLoss}
+                onPress={cancelPendingMarker}
+                testID="cancel-new-marker"
+              >
                 <ThemedText type="small">キャンセル</ThemedText>
               </Pressable>
             </ThemedView>

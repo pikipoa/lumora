@@ -72,39 +72,36 @@ export default function ProjectDetailScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <Pressable onPress={() => router.back()} testID="back-button">
-          <ThemedText type="link">← プロジェクト一覧</ThemedText>
+          <ThemedText type="link">← Realm</ThemedText>
         </Pressable>
 
         <ThemedText type="subtitle">{projectName ?? ''}</ThemedText>
 
         <Pressable
-          style={styles.card}
+          style={styles.row}
           onPress={() => router.push({ pathname: '/highlights', params: { projectId: id } })}
           testID="all-markers-card"
         >
-          <ThemedText type="smallBold">すべてのマーカー</ThemedText>
+          <ThemedText style={styles.count}>{markerCount}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            {markerCount}件（Arcaで見る）
+            すべてのマーカー
           </ThemedText>
         </Pressable>
 
         {wings.length > 0 && (
-          <>
-            <ThemedText type="smallBold">Wing（タグ別）</ThemedText>
+          <ThemedView style={styles.wingList}>
             {wings.map((w) => (
               <Pressable
                 key={w.name}
-                style={styles.card}
+                style={styles.wingRow}
                 onPress={() => router.push({ pathname: '/highlights', params: { projectId: id, wing: w.name } })}
                 testID={`wing-${w.name}`}
               >
-                <ThemedText type="smallBold">{w.name}</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  マーカー{w.count}件
-                </ThemedText>
+                <ThemedText>{w.name}</ThemedText>
+                <ThemedText themeColor="textSecondary">{w.count}</ThemedText>
               </Pressable>
             ))}
-          </>
+          </ThemedView>
         )}
 
         {markerCount === 0 && (
@@ -113,13 +110,9 @@ export default function ProjectDetailScreen() {
           </ThemedText>
         )}
 
-        <Pressable
-          style={styles.linkCard}
-          onPress={() => router.push({ pathname: '/inbox', params: { projectId: id } })}
-          testID="unassigned-conversations-card"
-        >
+        <Pressable onPress={() => router.push({ pathname: '/inbox', params: { projectId: id } })} testID="unassigned-conversations-card">
           <ThemedText type="small" themeColor="textSecondary">
-            （参考）このRealmに割り当て済みの会話：{unassignedConversationCount}件
+            割り当て済みの会話：{unassignedConversationCount}件
           </ThemedText>
         </Pressable>
       </ScrollView>
@@ -134,8 +127,10 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
     padding: Spacing.four,
-    gap: Spacing.three,
+    gap: Spacing.four,
   },
-  card: { borderRadius: Spacing.two, padding: Spacing.three, gap: Spacing.one, backgroundColor: '#F0F0F3' },
-  linkCard: { paddingVertical: Spacing.two },
+  row: { gap: Spacing.half },
+  count: { fontSize: 40, lineHeight: 46, fontWeight: '600' },
+  wingList: { gap: Spacing.three },
+  wingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
 });

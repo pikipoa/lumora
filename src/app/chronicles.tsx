@@ -83,9 +83,6 @@ export default function ChroniclesScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <ThemedText type="subtitle">Chronicle</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          マーカーを引いた会話だけが集まる、文脈を読み返すための図書館です。「なぜそう言っていたのか」を確認したい時はここから開きます。
-        </ThemedText>
 
         {rows === null ? (
           <ActivityIndicator style={{ marginTop: Spacing.five }} />
@@ -97,15 +94,13 @@ export default function ChroniclesScreen() {
           rows.map((r) => (
             <Pressable
               key={r.conversationId}
-              style={styles.card}
+              style={styles.row}
               onPress={() => router.push({ pathname: '/conversation/[id]', params: { id: r.conversationId } })}
               testID={`chronicle-${r.conversationId}`}
             >
-              <ThemedText type="smallBold" numberOfLines={2}>
-                {r.title}
-              </ThemedText>
+              <ThemedText numberOfLines={2}>{r.title}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                {SOURCE_LABEL[r.source] ?? r.source} ・ マーカー{r.markerCount}件 ・ 最終
+                {SOURCE_LABEL[r.source] ?? r.source} ・ マーカー{r.markerCount}件 ・{' '}
                 {new Date(r.lastMarkerAt).toLocaleDateString('ja-JP')}
               </ThemedText>
             </Pressable>
@@ -123,7 +118,7 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
     padding: Spacing.four,
-    gap: Spacing.three,
+    gap: Spacing.four,
   },
-  card: { borderRadius: Spacing.two, padding: Spacing.three, gap: Spacing.one, backgroundColor: '#F0F0F3' },
+  row: { gap: Spacing.one },
 });

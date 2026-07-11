@@ -104,11 +104,7 @@ export default function ProjectsScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <HomeLink />
-        <ThemedText type="subtitle">プロジェクト</ThemedText>
-
-        <Pressable style={styles.card} onPress={() => router.push('/inbox')} testID="open-inbox-card">
-          <ThemedText type="smallBold">📂 未分類（Inbox）</ThemedText>
-        </Pressable>
+        <ThemedText type="subtitle">Realm</ThemedText>
 
         {projects === null ? (
           <ActivityIndicator style={{ marginTop: Spacing.five }} />
@@ -130,14 +126,14 @@ export default function ProjectsScreen() {
 
         {!creating ? (
           <Pressable style={styles.newButton} onPress={() => setCreating(true)} testID="new-project-button">
-            <ThemedText style={styles.newButtonText}>＋ 新規プロジェクト</ThemedText>
+            <ThemedText style={styles.newButtonText}>＋ 新しいRealm</ThemedText>
           </Pressable>
         ) : (
           <ThemedView type="backgroundElement" style={styles.form}>
-            <ThemedText type="smallBold">新規プロジェクト</ThemedText>
+            <ThemedText type="smallBold">新しいRealm</ThemedText>
             <TextInput
               style={styles.input}
-              placeholder="プロジェクト名"
+              placeholder="Realm名"
               value={name}
               onChangeText={setName}
               testID="project-name-input"

@@ -147,6 +147,10 @@ Marker {
 Phase1機能「重要箇所抽出」はAIがMarkerを`proposed`状態で自動生成する機能（この時点では`color: null`, `role_tag`はAIが推定して提案可）。
 **色の選択＝確定操作そのもの**：人間が5色（蛍光ピンク/グリーン/イエロー/ブルー/レッド）のいずれかを選ぶ行為が、そのままマーカーを`confirmed`にする操作を兼ねる（詳細はux-flow-and-screens.md）。
 
+**範囲選択の実装方式（実装確定・2026-07-10、Step6技術スパイクの結論）**：ブラウザ標準のSelection/Range APIを使う。Web版は本文Textを`selectable`にして直接使用、ネイティブ版（iOS/Android）は同じロジックをWebView内JSとして動かしpostMessageで連携する設計（Web/ネイティブでロジックを共有できるのが採用理由。詳細はCLAUDE.md「実装前の必須スパイク」）。
+`quoted_text`から本文中の位置（開始/終了オフセット）を求める際は`message.content.indexOf(quoted_text)`による最初の一致を採用する（同一文字列が複数回出現する場合の区別はPhase1では行わない、既知の制約）。
+本文中のハイライトはproposed/confirmedの各マーカーを「区間マージ」でセグメント化して描画する設計にしており、将来Beacon等の追加ハイライトレイヤーが増えても同じ仕組み（`src/lib/markerLayout.ts`）で複数レイヤーを共存表示できる。
+
 ### Memo（メモ）
 ```
 Memo {

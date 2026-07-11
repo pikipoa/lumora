@@ -1,17 +1,33 @@
 /**
- * S6 会話詳細（レビュー画面）。要約/タグのAI提案(Ore)を確認・確定する主戦場。
- * マーカー（本文中の重要箇所ハイライト・色選択）はStep6スパイク→Step7で実装するため、
- * このバージョンではproposedマーカーの一覧を簡易表示するに留める。
+ * S6 会話詳細（レビュー画面）。要約/タグ/マーカーのAI提案(Ore)を確認・確定する主戦場。
+ *
+ * マーカーの範囲選択はStep6技術スパイクの結論（ブラウザ標準Selection/Range API）に基づく。
+ * Web版はTextを`selectable`にしてブラウザのSelection APIを直接使う。ネイティブ版は
+ * 同じロジックをWebView内JSとして動かす設計（Step7-a検証・data-model.md参照）で、
+ * 本画面のロジック自体はプラットフォーム非依存の`markerLayout.ts`に共通化している。
+ *
+ * ハイライトはproposed/confirmedマーカーを「区間マージ」で複数レイヤーとして重ね描画する
+ * 設計にしており、将来Beacon等の追加レイヤーが増えても同じ仕組みで表示できる。
  */
 
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { offsetsToRange, rangeToOffsets } from '@/lib/domSelection';
+import { computeSegments, locateQuotedText, type MarkerLayer } from '@/lib/markerLayout';
 import { supabase } from '@/lib/supabase';
+
+const MARKER_COLORS = [
+  { key: 'pink', hex: '#FF4FA3' },
+  { key: 'green', hex: '#3DDC84' },
+  { key: 'yellow', hex: '#FFD23D' },
+  { key: 'blue', hex: '#3D9CFF' },
+  { key: 'red', hex: '#FF4D4D' },
+] as const;
 
 const SOURCE_LABEL: Record<string, string> = {
   chatgpt: 'ChatGPT',
@@ -54,9 +70,18 @@ interface ConversationTagRow {
 
 interface MarkerRow {
   id: string;
+  message_id: string;
   quoted_text: string;
+  color: string | null;
   role_tag: string | null;
-  status: string;
+  status: 'proposed' | 'confirmed' | 'rejected';
+}
+
+interface PendingSelection {
+  messageId: string;
+  start: number;
+  end: number;
+  text: string;
 }
 
 interface MemoRow {
@@ -82,6 +107,9 @@ export default function ConversationDetailScreen() {
   const [newTagName, setNewTagName] = useState('');
   const [newTagType, setNewTagType] = useState<'topic' | 'concept'>('topic');
   const [memoDraft, setMemoDraft] = useState('');
+  const [pendingSelection, setPendingSelection] = useState<PendingSelection | null>(null);
+  const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
+  const messageRefs = useRef<Record<string, View | null>>({});
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -98,7 +126,10 @@ export default function ConversationDetailScreen() {
           .from('conversation_tags')
           .select('id, status, proposed_by, tags(id, name, tag_type)')
           .eq('conversation_id', id),
-        supabase.from('markers').select('id, quoted_text, role_tag, status').eq('conversation_id', id),
+        supabase
+          .from('markers')
+          .select('id, message_id, quoted_text, color, role_tag, status')
+          .eq('conversation_id', id),
         supabase.from('memos').select('id, body').eq('target_type', 'conversation').eq('target_id', id).maybeSingle(),
       ]);
 
@@ -116,6 +147,114 @@ export default function ConversationDetailScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Step6スパイクの結論：ブラウザ標準Selection APIで範囲を読み取る。
+  // ドラッグ中はDOMを再構成しない（既存マーカーのレイヤーのみで分割し、選択中の範囲は
+  // ブラウザ自身のネイティブ選択表示に任せる）ことで、選択オブジェクトが無効化される
+  // レース条件（スパイク検証で発見）を避けている。
+  // editingMarkerIdは「タップで編集開始したマーカー」を保持し、selectionchangeが来ても
+  // クリアしない（同じマーカーの範囲をドラッグで微調整している間、編集対象を保ち続けるため）。
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    function onSelectionChange() {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+        setPendingSelection(null);
+        setEditingMarkerId(null);
+        return;
+      }
+      const domRange = sel.getRangeAt(0);
+      for (const [messageId, view] of Object.entries(messageRefs.current)) {
+        const el = view as unknown as HTMLElement | null;
+        if (!el || !el.contains(domRange.commonAncestorContainer)) continue;
+        const { start, end, text } = rangeToOffsets(el, domRange);
+        setPendingSelection({ messageId, start, end, text });
+        return;
+      }
+      setPendingSelection(null);
+      setEditingMarkerId(null);
+    }
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => document.removeEventListener('selectionchange', onSelectionChange);
+  }, []);
+
+  function clearNativeSelection() {
+    if (Platform.OS === 'web') window.getSelection()?.removeAllRanges();
+  }
+
+  // 既存マーカーをタップ→そのマーカーの現在の範囲をブラウザのネイティブ選択として復元する。
+  // これにより表示されるドラッグハンドルで、そのまま範囲を左右に微調整できる（「引いた後の範囲変更」）。
+  function startEditingMarker(messageId: string, layer: MarkerLayer) {
+    setEditingMarkerId(layer.id);
+    setPendingSelection({ messageId, start: layer.start, end: layer.end, text: '' });
+    if (Platform.OS !== 'web') return;
+    const view = messageRefs.current[messageId] as unknown as HTMLElement | null;
+    if (!view) return;
+    const range = offsetsToRange(view, layer.start, layer.end);
+    if (!range) return;
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }
+
+  async function recordMarkerHistory(markerId: string, color: string | null, status: string) {
+    const { data: userRes } = await supabase.auth.getUser();
+    const userId = userRes.user?.id;
+    if (!userId) return;
+    await supabase.from('marker_history').insert({ marker_id: markerId, color, status, user_id: userId });
+  }
+
+  async function confirmPendingMarker(color: string) {
+    if (!pendingSelection || !id) return;
+    const { data: userRes } = await supabase.auth.getUser();
+    const userId = userRes.user?.id;
+    if (!userId) return;
+
+    if (editingMarkerId) {
+      const existing = markers.find((m) => m.id === editingMarkerId);
+      const quotedText = pendingSelection.text || existing?.quoted_text;
+      if (!quotedText) return;
+      await supabase
+        .from('markers')
+        .update({ quoted_text: quotedText, color, status: 'confirmed' })
+        .eq('id', editingMarkerId);
+      await recordMarkerHistory(editingMarkerId, color, 'confirmed');
+    } else {
+      const { data: created } = await supabase
+        .from('markers')
+        .insert({
+          conversation_id: id,
+          message_id: pendingSelection.messageId,
+          quoted_text: pendingSelection.text,
+          color,
+          status: 'confirmed',
+          proposed_by: 'human',
+          user_id: userId,
+        })
+        .select('id')
+        .single();
+      if (created) await recordMarkerHistory(created.id, color, 'confirmed');
+    }
+    clearNativeSelection();
+    setPendingSelection(null);
+    setEditingMarkerId(null);
+    load();
+  }
+
+  async function rejectMarker(markerId: string) {
+    await supabase.from('markers').update({ status: 'rejected' }).eq('id', markerId);
+    await recordMarkerHistory(markerId, null, 'rejected');
+    clearNativeSelection();
+    setPendingSelection(null);
+    setEditingMarkerId(null);
+    load();
+  }
+
+  function cancelPendingMarker() {
+    clearNativeSelection();
+    setPendingSelection(null);
+    setEditingMarkerId(null);
+  }
 
   async function confirmSummary() {
     if (!summary) return;
@@ -196,6 +335,28 @@ export default function ConversationDetailScreen() {
     load();
   }
 
+  const layersByMessage = useMemo(() => {
+    const map: Record<string, MarkerLayer[]> = {};
+    for (const marker of markers) {
+      if (marker.status === 'rejected') continue;
+      const message = messages.find((m) => m.id === marker.message_id);
+      if (!message) continue;
+      const located = locateQuotedText(message.content, marker.quoted_text);
+      if (!located) continue;
+      const layer: MarkerLayer = {
+        id: marker.id,
+        start: located.start,
+        end: located.end,
+        kind: marker.status === 'confirmed' ? 'confirmed' : 'proposed',
+        color: marker.color,
+      };
+      (map[marker.message_id] ??= []).push(layer);
+    }
+    return map;
+  }, [markers, messages]);
+
+  const editingMarker = markers.find((m) => m.id === editingMarkerId) ?? null;
+
   if (loading) {
     return (
       <ThemedView style={styles.container}>
@@ -213,7 +374,6 @@ export default function ConversationDetailScreen() {
   }
 
   const visibleTags = conversationTags.filter((t) => showRejectedTags || t.status !== 'rejected');
-  const proposedMarkers = markers.filter((m) => m.status === 'proposed');
 
   return (
     <ThemedView style={styles.container}>
@@ -366,34 +526,89 @@ export default function ConversationDetailScreen() {
           </ThemedView>
         </ThemedView>
 
-        {/* マーカー簡易一覧（範囲調整・色確定はStep7で実装） */}
-        {proposedMarkers.length > 0 && (
-          <ThemedView type="backgroundElement" style={styles.section}>
-            <ThemedText type="smallBold">AI提案のマーカー（{proposedMarkers.length}件・簡易表示）</ThemedText>
-            {proposedMarkers.map((m) => (
-              <ThemedText type="small" key={m.id}>
-                ・{m.role_tag ? `[${m.role_tag}] ` : ''}
-                {m.quoted_text}
-              </ThemedText>
-            ))}
-            <ThemedText type="small" themeColor="textSecondary">
-              範囲調整・色選択での確定はマーカー確定UI（Step7）実装後に対応します
-            </ThemedText>
-          </ThemedView>
-        )}
-
-        {/* 本文 */}
+        {/* 本文（マーカーハイライト＋範囲選択） */}
         <ThemedView type="backgroundElement" style={styles.section}>
           <ThemedText type="smallBold">本文</ThemedText>
-          {messages.map((m) => (
-            <ThemedView key={m.id} style={styles.messageRow}>
-              <ThemedText type="small" themeColor="textSecondary">
-                {m.role === 'user' ? 'あなた' : 'AI'}
-              </ThemedText>
-              <ThemedText>{m.content}</ThemedText>
-            </ThemedView>
-          ))}
+          <ThemedText type="small" themeColor="textSecondary">
+            文字をドラッグ選択すると新規マーカーを作成できます。ハイライト済み箇所をタップすると、その場で範囲を左右にドラッグ調整してから承認/却下できます。
+          </ThemedText>
+          {messages.map((m) => {
+            const segments = computeSegments(m.content, layersByMessage[m.id] ?? []);
+            return (
+              <ThemedView key={m.id} style={styles.messageRow}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {m.role === 'user' ? 'あなた' : 'AI'}
+                </ThemedText>
+                <View
+                  ref={(el) => {
+                    messageRefs.current[m.id] = el;
+                  }}
+                >
+                  <Text selectable style={styles.messageText}>
+                    {segments.map((seg, i) => {
+                      if (!seg.layer) return seg.text;
+                      const isProposed = seg.layer.kind === 'proposed';
+                      const bg = seg.layer.color
+                        ? MARKER_COLORS.find((c) => c.key === seg.layer!.color)?.hex
+                        : '#FFD23D88';
+                      return (
+                        <Text
+                          key={i}
+                          onPress={() => startEditingMarker(m.id, seg.layer!)}
+                          style={[
+                            { backgroundColor: bg },
+                            isProposed && styles.markerProposed,
+                            seg.layer.id === editingMarkerId && styles.markerSelected,
+                          ]}
+                          testID={`marker-segment-${seg.layer.id}`}
+                        >
+                          {seg.text}
+                        </Text>
+                      );
+                    })}
+                  </Text>
+                </View>
+              </ThemedView>
+            );
+          })}
         </ThemedView>
+
+        {pendingSelection && (
+          <ThemedView type="backgroundElement" style={styles.actionBar}>
+            <ThemedText type="small">
+              {editingMarker
+                ? `${editingMarker.status === 'proposed' ? '🤖 AI提案（Ore）を編集：' : 'マーカーを編集：'}「${(pendingSelection.text || editingMarker.quoted_text).slice(0, 40)}」`
+                : `新規マーカーを作成：「${pendingSelection.text.slice(0, 40)}」`}
+            </ThemedText>
+            {editingMarker && (
+              <ThemedText type="small" themeColor="textSecondary">
+                範囲をドラッグして調整してから色を選ぶと、その範囲で確定します
+              </ThemedText>
+            )}
+            <ThemedView style={styles.row}>
+              {MARKER_COLORS.map((c) => (
+                <Pressable
+                  key={c.key}
+                  style={[styles.swatch, { backgroundColor: c.hex }]}
+                  onPress={() => confirmPendingMarker(c.key)}
+                  testID={`marker-color-${c.key}`}
+                />
+              ))}
+              {editingMarker && (
+                <Pressable
+                  style={styles.smallButtonOutline}
+                  onPress={() => rejectMarker(editingMarker.id)}
+                  testID="reject-marker-button"
+                >
+                  <ThemedText type="small">却下</ThemedText>
+                </Pressable>
+              )}
+              <Pressable style={styles.smallButtonOutline} onPress={cancelPendingMarker} testID="cancel-new-marker">
+                <ThemedText type="small">キャンセル</ThemedText>
+              </Pressable>
+            </ThemedView>
+          </ThemedView>
+        )}
 
         {/* メモ */}
         <ThemedView type="backgroundElement" style={styles.section}>
@@ -428,6 +643,17 @@ const styles = StyleSheet.create({
   badge: { alignSelf: 'flex-start', borderRadius: Spacing.two, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one },
   section: { borderRadius: Spacing.two, padding: Spacing.three, gap: Spacing.two },
   row: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
+  messageText: { fontSize: 16, lineHeight: 24 },
+  markerProposed: { borderBottomWidth: 2, borderBottomColor: '#999', borderStyle: 'dashed' },
+  markerSelected: { outlineWidth: 2, outlineColor: '#208AEF', outlineStyle: 'solid' } as object,
+  actionBar: {
+    borderRadius: Spacing.two,
+    padding: Spacing.three,
+    gap: Spacing.two,
+    borderWidth: 1,
+    borderColor: '#208AEF',
+  },
+  swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#00000022' },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   messageRow: { gap: Spacing.half, paddingVertical: Spacing.one },
   tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },

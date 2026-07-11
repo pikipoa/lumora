@@ -1,12 +1,17 @@
 /**
- * S6 会話詳細（レビュー画面）。要約/タグ/マーカーのAI提案(Ore)を確認・確定する主戦場。
+ * S6 会話詳細。横断検索（S8）から辿り着き、本文を選択してマーカーを作る主戦場。
+ *
+ * 【設計思想の転換（2026-07-11）】AI要約（Summary）機能は廃止した。マーカーは常に人間が
+ * 手動で作成し（AIによる会話全体からの自動発見はしない）、confirmedになった時点で
+ * そのまま「Arca」に追加される。タグ整理はArca側でマーカー単位のAI処理として行う。
+ * 詳細：C:\Users\user\.claude\plans\parsed-enchanting-dream.md
  *
  * マーカーの範囲選択はStep6技術スパイクの結論（ブラウザ標準Selection/Range API）に基づく。
  * Web版はTextを`selectable`にしてブラウザのSelection APIを直接使う。ネイティブ版は
  * 同じロジックをWebView内JSとして動かす設計（Step7-a検証・data-model.md参照）で、
  * 本画面のロジック自体はプラットフォーム非依存の`markerLayout.ts`に共通化している。
  *
- * ハイライトはproposed/confirmedマーカーを「区間マージ」で複数レイヤーとして重ね描画する
+ * ハイライトはconfirmedマーカーを「区間マージ」で複数レイヤーとして重ね描画する
  * 設計にしており、将来Beacon等の追加レイヤーが増えても同じ仕組みで表示できる。
  */
 
@@ -55,12 +60,6 @@ interface MessageRow {
   seq: number;
 }
 
-interface SummaryRow {
-  id: string;
-  body: string;
-  status: 'proposed' | 'confirmed' | 'edited' | 'rejected';
-}
-
 interface ConversationTagRow {
   id: string;
   status: 'proposed' | 'confirmed' | 'rejected';
@@ -96,14 +95,11 @@ export default function ConversationDetailScreen() {
 
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
   const [messages, setMessages] = useState<MessageRow[]>([]);
-  const [summary, setSummary] = useState<SummaryRow | null>(null);
   const [conversationTags, setConversationTags] = useState<ConversationTagRow[]>([]);
   const [markers, setMarkers] = useState<MarkerRow[]>([]);
   const [memo, setMemo] = useState<MemoRow | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [summaryDraft, setSummaryDraft] = useState('');
-  const [editingSummary, setEditingSummary] = useState(false);
   const [showRejectedTags, setShowRejectedTags] = useState(false);
   const [newTagName, setNewTagName] = useState('');
   const [newTagType, setNewTagType] = useState<'topic' | 'concept'>('topic');
@@ -115,7 +111,7 @@ export default function ConversationDetailScreen() {
 
   const load = useCallback(async () => {
     if (!id) return;
-    const [{ data: conv }, { data: msgs }, { data: sum }, { data: cts }, { data: mks }, { data: memos }] =
+    const [{ data: conv }, { data: msgs }, { data: cts }, { data: mks }, { data: memos }] =
       await Promise.all([
         supabase
           .from('conversations')
@@ -123,7 +119,6 @@ export default function ConversationDetailScreen() {
           .eq('id', id)
           .single(),
         supabase.from('messages').select('id, role, content, seq').eq('conversation_id', id).order('seq'),
-        supabase.from('summaries').select('id, body, status').eq('conversation_id', id).maybeSingle(),
         supabase
           .from('conversation_tags')
           .select('id, status, proposed_by, tags(id, name, tag_type)')
@@ -137,8 +132,6 @@ export default function ConversationDetailScreen() {
 
     setConversation((conv as unknown as ConversationDetail) ?? null);
     setMessages(msgs ?? []);
-    setSummary(sum ?? null);
-    setSummaryDraft(sum?.body ?? '');
     setConversationTags((cts as unknown as ConversationTagRow[]) ?? []);
     setMarkers(mks ?? []);
     setMemo(memos ?? null);
@@ -274,25 +267,6 @@ export default function ConversationDetailScreen() {
     setEditingMarkerId(null);
   }
 
-  async function confirmSummary() {
-    if (!summary) return;
-    await supabase.from('summaries').update({ status: 'confirmed' }).eq('id', summary.id);
-    load();
-  }
-
-  async function saveEditedSummary() {
-    if (!summary) return;
-    await supabase.from('summaries').update({ body: summaryDraft, status: 'edited' }).eq('id', summary.id);
-    setEditingSummary(false);
-    load();
-  }
-
-  async function rejectSummary() {
-    if (!summary) return;
-    await supabase.from('summaries').update({ status: 'rejected' }).eq('id', summary.id);
-    load();
-  }
-
   async function setTagStatus(ctId: string, status: 'confirmed' | 'rejected') {
     await supabase
       .from('conversation_tags')
@@ -378,7 +352,6 @@ export default function ConversationDetailScreen() {
   }, [markers, messages]);
 
   const editingMarker = markers.find((m) => m.id === editingMarkerId) ?? null;
-  const proposedMarkerCount = markers.filter((m) => m.status === 'proposed').length;
 
   if (loading) {
     return (
@@ -415,69 +388,6 @@ export default function ConversationDetailScreen() {
         </ThemedText>
 
         <ThemedText type="subtitle">{conversation.title}</ThemedText>
-
-        {/* 要約エリア */}
-        <ThemedView type="backgroundElement" style={styles.section}>
-          <ThemedText type="smallBold">要約</ThemedText>
-          {summary ? (
-            <>
-              {summary.status === 'proposed' && (
-                <ThemedText type="small" themeColor="textSecondary">
-                  🤖 AI提案（Ore）
-                </ThemedText>
-              )}
-              {editingSummary ? (
-                <>
-                  <TextInput
-                    style={styles.textArea}
-                    value={summaryDraft}
-                    onChangeText={setSummaryDraft}
-                    multiline
-                    testID="summary-edit-input"
-                  />
-                  <Pressable style={styles.smallButton} onPress={saveEditedSummary} testID="summary-save-button">
-                    <ThemedText style={styles.smallButtonText}>保存</ThemedText>
-                  </Pressable>
-                </>
-              ) : summary.status === 'rejected' ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  非表示にされています
-                </ThemedText>
-              ) : (
-                <ThemedText>{summary.body}</ThemedText>
-              )}
-
-              {!editingSummary && summary.status !== 'rejected' && (
-                <ThemedView style={styles.row}>
-                  {summary.status === 'proposed' && (
-                    <Pressable style={styles.smallButton} onPress={confirmSummary} testID="summary-confirm-button">
-                      <ThemedText style={styles.smallButtonText}>このままでOK</ThemedText>
-                    </Pressable>
-                  )}
-                  <Pressable
-                    style={styles.smallButtonOutline}
-                    onPress={() => setEditingSummary(true)}
-                    testID="summary-edit-button"
-                  >
-                    <ThemedText type="small">編集する</ThemedText>
-                  </Pressable>
-                  <Pressable style={styles.smallButtonOutline} onPress={rejectSummary} testID="summary-reject-button">
-                    <ThemedText type="small">非表示</ThemedText>
-                  </Pressable>
-                </ThemedView>
-              )}
-              {summary.status === 'rejected' && (
-                <Pressable style={styles.smallButtonOutline} onPress={confirmSummary} testID="summary-unreject-button">
-                  <ThemedText type="small">やっぱり表示する</ThemedText>
-                </Pressable>
-              )}
-            </>
-          ) : (
-            <ThemedText type="small" themeColor="textSecondary">
-              まだAI分析が実行されていません（会話一覧から実行できます）
-            </ThemedText>
-          )}
-        </ThemedView>
 
         {/* タグエリア */}
         <ThemedView type="backgroundElement" style={styles.section}>
@@ -595,15 +505,6 @@ export default function ConversationDetailScreen() {
               </ThemedView>
             );
           })}
-          {proposedMarkerCount > 0 && (
-            <Pressable
-              style={styles.smallButtonOutline}
-              onPress={() => router.push({ pathname: '/conversation/[id]/review', params: { id: id! } })}
-              testID="start-marker-review"
-            >
-              <ThemedText type="small">まとめてマーカーレビュー（{proposedMarkerCount}件）→</ThemedText>
-            </Pressable>
-          )}
         </ThemedView>
 
         {pendingSelection && (

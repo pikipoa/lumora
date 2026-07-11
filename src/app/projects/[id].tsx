@@ -1,22 +1,23 @@
 /**
- * S4 プロジェクト詳細（ux-flow-and-screens.md §2-1）。Theme一覧、プロジェクト内会話数、未レビュー件数。
+ * S4 プロジェクト詳細（Realm）。マーカー中心アーキテクチャへの転換（2026-07-11）に伴い、
+ * Theme一覧＋会話数の表示から、Wing（MarkerTagカテゴリ）ごとのマーカー数の表示へ作り替えた。
+ * Wingは新テーブルを追加せず、このRealmに属するマーカーのタグそのものとして実現する
+ * （タップでArca画面へRealm/Wingを引き継いで遷移）。
+ * 詳細経緯：C:\Users\user\.claude\plans\parsed-enchanting-dream.md
  */
 
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { loadUnreviewedCounts } from '@/lib/review';
 import { supabase } from '@/lib/supabase';
 
-interface ThemeRow {
-  id: string;
+interface WingRow {
   name: string;
-  conversationCount: number;
-  unreviewedCount: number;
+  count: number;
 }
 
 export default function ProjectDetailScreen() {
@@ -24,57 +25,42 @@ export default function ProjectDetailScreen() {
   const router = useRouter();
 
   const [projectName, setProjectName] = useState<string | null>(null);
-  const [themes, setThemes] = useState<ThemeRow[] | null>(null);
-  const [unassignedCount, setUnassignedCount] = useState(0);
-  const [creatingTheme, setCreatingTheme] = useState(false);
-  const [newThemeName, setNewThemeName] = useState('');
+  const [markerCount, setMarkerCount] = useState(0);
+  const [wings, setWings] = useState<WingRow[] | null>(null);
+  const [unassignedConversationCount, setUnassignedConversationCount] = useState(0);
 
   const load = useCallback(async () => {
     if (!id) return;
-    const [{ data: project }, { data: themeRows }, { data: conversations }, counts] = await Promise.all([
+    const [{ data: project }, { data: markers }, { data: conversations }] = await Promise.all([
       supabase.from('projects').select('name').eq('id', id).single(),
-      supabase.from('themes').select('id, name').eq('project_id', id).order('created_at'),
-      supabase.from('conversations').select('id, theme_id').eq('project_id', id),
-      loadUnreviewedCounts(),
+      supabase
+        .from('markers')
+        .select('id, marker_tags(status, tags(name))')
+        .eq('project_id', id)
+        .eq('status', 'confirmed'),
+      supabase.from('conversations').select('id').eq('project_id', id).is('theme_id', null),
     ]);
 
     setProjectName(project?.name ?? null);
+    setMarkerCount(markers?.length ?? 0);
+    setUnassignedConversationCount(conversations?.length ?? 0);
 
-    const countByTheme = new Map<string, number>();
-    let unassigned = 0;
-    for (const c of conversations ?? []) {
-      if (c.theme_id) countByTheme.set(c.theme_id, (countByTheme.get(c.theme_id) ?? 0) + 1);
-      else unassigned += 1;
+    const counts = new Map<string, number>();
+    for (const m of markers ?? []) {
+      const markerTags = (m as unknown as { marker_tags: { status: string; tags: { name: string } }[] }).marker_tags;
+      for (const mt of markerTags ?? []) {
+        if (mt.status === 'rejected') continue;
+        counts.set(mt.tags.name, (counts.get(mt.tags.name) ?? 0) + 1);
+      }
     }
-    setUnassignedCount(unassigned);
-
-    setThemes(
-      (themeRows ?? []).map((t) => ({
-        ...t,
-        conversationCount: countByTheme.get(t.id) ?? 0,
-        unreviewedCount: counts.byTheme[t.id] ?? 0,
-      })),
-    );
+    setWings([...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count));
   }, [id]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  async function createTheme() {
-    const trimmed = newThemeName.trim();
-    if (!trimmed || !id) return;
-    const { data: userRes } = await supabase.auth.getUser();
-    const userId = userRes.user?.id;
-    if (!userId) return;
-
-    await supabase.from('themes').insert({ name: trimmed, project_id: id, user_id: userId });
-    setNewThemeName('');
-    setCreatingTheme(false);
-    load();
-  }
-
-  if (themes === null) {
+  if (wings === null) {
     return (
       <ThemedView style={styles.container}>
         <ActivityIndicator style={{ marginTop: Spacing.five }} />
@@ -93,49 +79,49 @@ export default function ProjectDetailScreen() {
 
         <Pressable
           style={styles.card}
-          onPress={() => router.push({ pathname: '/inbox', params: { projectId: id } })}
-          testID="unassigned-conversations-card"
+          onPress={() => router.push({ pathname: '/highlights', params: { projectId: id } })}
+          testID="all-markers-card"
         >
-          <ThemedText type="smallBold">未割当の会話</ThemedText>
+          <ThemedText type="smallBold">すべてのマーカー</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            {unassignedCount}件
+            {markerCount}件（Arcaで見る）
           </ThemedText>
         </Pressable>
 
-        {themes.map((t) => (
-          <Pressable
-            key={t.id}
-            style={styles.card}
-            onPress={() => router.push({ pathname: '/inbox', params: { themeId: t.id, themeName: t.name } })}
-            testID={`theme-${t.id}`}
-          >
-            <ThemedText type="smallBold">{t.name}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              会話{t.conversationCount}件
-              {t.unreviewedCount > 0 ? ` ・ ${t.unreviewedCount}件レビュー待ち` : ''}
-            </ThemedText>
-          </Pressable>
-        ))}
-
-        {!creatingTheme ? (
-          <Pressable style={styles.newButton} onPress={() => setCreatingTheme(true)} testID="new-theme-button">
-            <ThemedText style={styles.newButtonText}>＋ 新規テーマ</ThemedText>
-          </Pressable>
-        ) : (
-          <ThemedView style={styles.row}>
-            <TextInput
-              style={[styles.input, { flex: 1 }]}
-              placeholder="テーマ名"
-              value={newThemeName}
-              onChangeText={setNewThemeName}
-              onSubmitEditing={createTheme}
-              testID="theme-name-input"
-            />
-            <Pressable style={styles.newButton} onPress={createTheme} testID="create-theme-button">
-              <ThemedText style={styles.newButtonText}>作成</ThemedText>
-            </Pressable>
-          </ThemedView>
+        {wings.length > 0 && (
+          <>
+            <ThemedText type="smallBold">Wing（タグ別）</ThemedText>
+            {wings.map((w) => (
+              <Pressable
+                key={w.name}
+                style={styles.card}
+                onPress={() => router.push({ pathname: '/highlights', params: { projectId: id, wing: w.name } })}
+                testID={`wing-${w.name}`}
+              >
+                <ThemedText type="smallBold">{w.name}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  マーカー{w.count}件
+                </ThemedText>
+              </Pressable>
+            ))}
+          </>
         )}
+
+        {markerCount === 0 && (
+          <ThemedText type="small" themeColor="textSecondary">
+            まだこのRealmにマーカーがありません。横断検索から会話を見つけて本文を選択し、マーカーを作成してからここに割り当ててください。
+          </ThemedText>
+        )}
+
+        <Pressable
+          style={styles.linkCard}
+          onPress={() => router.push({ pathname: '/inbox', params: { projectId: id } })}
+          testID="unassigned-conversations-card"
+        >
+          <ThemedText type="small" themeColor="textSecondary">
+            （参考）このRealmに割り当て済みの会話：{unassignedConversationCount}件
+          </ThemedText>
+        </Pressable>
       </ScrollView>
     </ThemedView>
   );
@@ -151,20 +137,5 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   card: { borderRadius: Spacing.two, padding: Spacing.three, gap: Spacing.one, backgroundColor: '#F0F0F3' },
-  row: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
-  input: {
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: Spacing.two,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.two,
-  },
-  newButton: {
-    backgroundColor: '#208AEF',
-    borderRadius: Spacing.two,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    alignSelf: 'flex-start',
-  },
-  newButtonText: { color: '#fff', fontWeight: '600' },
+  linkCard: { paddingVertical: Spacing.two },
 });

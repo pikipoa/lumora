@@ -28,25 +28,25 @@ export default function HomeScreen() {
         <ThemedText type="small">{session.user.email}</ThemedText>
 
         <ThemedView type="backgroundElement" style={styles.menu}>
+          <Pressable style={styles.menuItem} onPress={() => router.push('/search')}>
+            <ThemedText type="smallBold">🔍 横断検索</ThemedText>
+            <ThemedText type="small">まずはここから。全AI横断でチャットを発掘し、本文を選んでマーカーを作成</ThemedText>
+          </Pressable>
+          <Pressable style={styles.menuItem} onPress={() => router.push('/highlights')}>
+            <ThemedText type="smallBold">✨ Arca</ThemedText>
+            <ThemedText type="small">作成したマーカーの集積地。Realm・タグで整理</ThemedText>
+          </Pressable>
+          <Pressable style={styles.menuItem} onPress={() => router.push('/projects')}>
+            <ThemedText type="smallBold">🗂️ プロジェクト一覧（Realm）</ThemedText>
+            <ThemedText type="small">マーカーをまとめた知識の置き場所</ThemedText>
+          </Pressable>
           <Pressable style={styles.menuItem} onPress={() => router.push('/import')}>
             <ThemedText type="smallBold">📥 会話をインポート</ThemedText>
             <ThemedText type="small">ChatGPT / Gemini / Claude / Perplexity</ThemedText>
           </Pressable>
           <Pressable style={styles.menuItem} onPress={() => router.push('/inbox')}>
             <ThemedText type="smallBold">📂 会話一覧（Inbox）</ThemedText>
-            <ThemedText type="small">インポート済み会話の確認とAI分析の実行</ThemedText>
-          </Pressable>
-          <Pressable style={styles.menuItem} onPress={() => router.push('/projects')}>
-            <ThemedText type="smallBold">🗂️ プロジェクト一覧</ThemedText>
-            <ThemedText type="small">Realm・テーマの整理とレビュー</ThemedText>
-          </Pressable>
-          <Pressable style={styles.menuItem} onPress={() => router.push('/search')}>
-            <ThemedText type="smallBold">🔍 横断検索</ThemedText>
-            <ThemedText type="small">全プロジェクト・全AI横断のキーワード/タグ検索</ThemedText>
-          </Pressable>
-          <Pressable style={styles.menuItem} onPress={() => router.push('/highlights')}>
-            <ThemedText type="smallBold">✨ 重要部分だけ表示</ThemedText>
-            <ThemedText type="small">確定済み（Arca）マーカーの一覧</ThemedText>
+            <ThemedText type="small">横断検索で見つからない時のフォールバック閲覧</ThemedText>
           </Pressable>
         </ThemedView>
 

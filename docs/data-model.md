@@ -131,24 +131,27 @@ MarkerTag {
 - `MarkerTag`：個々の発見物（Marker）単位への正確なTopic/Conceptタグ。1つの会話の中でトピックが混ざっていても、発見物ごとに正確なタグが付けられる（論点Aで「Themeの1:1固定を、タグで吸収する」と決めた話が、会話単位よりさらに正確に実現される）
 - 状態遷移の考え方（proposed→confirmed/rejected）はConversationTagと共通
 
-### Marker（マーカー／重要箇所）
+### Marker（マーカー／重要箇所）※知識の最小単位（2026-07-11の情報フロー転換により中心的存在に）
 ```
 Marker {
   id: uuid
   conversation_id: uuid
   message_id: uuid          // どのメッセージ内か
+  project_id: uuid | null   // 実装確定・2026-07-11：マーカーを直接Realmへ割り当てる手段
   quoted_text: string       // マーカーを引いた原文の抜粋
   color: "pink" | "green" | "yellow" | "blue" | "red" | null
                              // confirmed時は必須。proposed（AI提案・未確定）時はnull許容
   role_tag: "idea" | "hypothesis" | "decision" | "strategy" | "learning" | null
                              // Roleタグ（自分の知識内での役割）。固定enumのためTagテーブルとは別枠
-  status: "proposed" | "confirmed" | "rejected"   // AI抽出の重要箇所も「提案」として扱う
+  status: "proposed" | "confirmed" | "rejected"
   proposed_by: "ai" | "human"
   created_at: datetime
 }
 ```
-Phase1機能「重要箇所抽出」はAIがMarkerを`proposed`状態で自動生成する機能（この時点では`color: null`, `role_tag`はAIが推定して提案可）。
-**色の選択＝確定操作そのもの**：人間が5色（蛍光ピンク/グリーン/イエロー/ブルー/レッド）のいずれかを選ぶ行為が、そのままマーカーを`confirmed`にする操作を兼ねる（詳細はux-flow-and-screens.md）。
+**情報フローの転換（決定・2026-07-11）**：AIによる「会話全体からのマーカー自動発見」は廃止した。マーカーは常に人間が横断検索→本文選択で手動作成する（`proposed_by: human`のみ。旧仕様の「AIがproposedで自動生成」は行わない）。詳細経緯：`VISION.md` 3-3、`C:\Users\user\.claude\plans\parsed-enchanting-dream.md`。
+**色の選択＝確定操作そのもの**：人間が5色（蛍光ピンク/グリーン/イエロー/ブルー/レッド）のいずれかを選ぶ行為が、そのままマーカーを`confirmed`にする操作を兼ねる（詳細はux-flow-and-screens.md）。**マーカーがconfirmedになった時点＝Arcaに追加された状態**であり、Realm（`project_id`）への割り当ては別の任意操作。
+
+**Wing（Theme相当）の実現方法（決定・2026-07-11）**：Wingは新テーブルを追加せず、**MarkerTagによる絞り込み表示として実現する**。あるRealm内のマーカーが持つタグそのものが「見た目上のWing」になる。`themes`テーブルは残すが、この用途では使わない（会話への割り当てというレガシーな使い方のみ残る）。
 
 **範囲選択の実装方式（実装確定・2026-07-10、Step6技術スパイクの結論）**：ブラウザ標準のSelection/Range APIを使う。Web版は本文Textを`selectable`にして直接使用、ネイティブ版（iOS/Android）は同じロジックをWebView内JSとして動かしpostMessageで連携する設計（Web/ネイティブでロジックを共有できるのが採用理由。詳細はCLAUDE.md「実装前の必須スパイク」）。
 `quoted_text`から本文中の位置（開始/終了オフセット）を求める際は`message.content.indexOf(quoted_text)`による最初の一致を採用する（同一文字列が複数回出現する場合の区別はPhase1では行わない、既知の制約）。
@@ -181,19 +184,9 @@ Memo {
 ```
 会話全体に対するメモと、マーカー箇所に対するメモの両方を1つのテーブルで表現（target_typeで分岐）。
 
-### Summary（AI生成要約）
-```
-Summary {
-  id: uuid
-  conversation_id: uuid
-  body: string
-  status: "proposed" | "confirmed" | "edited"
-  created_at: datetime
-  updated_at: datetime
-}
-```
-- `edited`：人間がAI生成文をベースに書き換えた状態（タグと同様、提案→確定の思想を要約にも適用）
-- **再実行時の挙動（実装確定・2026-07-10）**：既存のSummaryがある会話で再度AI分析を実行した場合、既存行のbodyを上書きし`status`を`proposed`に戻す（履歴は残さない。論点Cの「上書きのみ」方針通り）
+### ~~Summary（AI生成要約）~~ → 廃止（決定・2026-07-11）
+
+会話ごとのAI要約機能は、情報フローの転換（VISION.md 3-3）に伴い廃止した。`summaries`テーブルは物理削除済み（マイグレーション`20260711000003_marker_centric_pivot.sql`）。Realm/Arcaがマーカー中心になったため、会話全体の要約という単位は不要と判断した。
 
 ### AiJob（AI分析ジョブ）
 ```
@@ -209,10 +202,9 @@ AiJob {
   finished_at: datetime | null
 }
 ```
-**実行方式（実装確定・2026-07-10）**：インポート時の自動実行はせず、会話一覧（Inbox）画面から会話ごとに人間が手動でボタンを押して実行する。
-理由：初回インポートは数百件規模になりうり、自動実行だと想定外のAPIコスト急増を招くため。まず手動選択式で開始し、コスト実測後にPhase2で自動化の要否を判断する。
+**実行方式（実装確定・2026-07-10）**：インポート時の自動実行はせず、人間が手動でボタンを押して実行する。理由：初回インポートは数百件規模になりうり、自動実行だと想定外のAPIコスト急増を招くため。
 
-**マーカー抽出時の検証（実装確定）**：AIが提案する`quoted_text`は元メッセージ本文からの完全一致部分文字列でなければならない。一致しない提案は幻覚（hallucination）とみなし、DBに保存せず破棄する（件数のみ`AiJob.result_summary`に記録）。
+**~~このテーブルは2026-07-11の情報フロー転換後は使われなくなった~~**：AI処理の対象が「会話全体」から「人間が確定させたマーカー群」に変わったため（VISION.md 3-3）、新しいAI処理（Edge Function `organize-markers`）はこのテーブルを使わず、`aiService.ts`と同じ同期呼び出しパターンで完結する（対象マーカー数が人間の選んだ範囲に留まり小さいため、非同期ジョブ管理の必要性が薄れた）。テーブル自体は過去の実行ログとして削除せず残している。
 
 ---
 
@@ -225,7 +217,8 @@ Conversation 1 ── N Message
 Conversation N ── N Tag  (via ConversationTag、status付き。tag_type: topic/conceptのみ)
 Marker  N ── N Tag  (via MarkerTag、status付き。tag_type: topic/conceptのみ)
 Conversation 1 ── N Marker
-Conversation 1 ── N Summary   ※Phase1は基本1件運用を想定（再生成時は上書き or 履歴保持は要検討）
+Project      1 ── N Marker  （2026-07-11追加。マーカーを直接Realmへ割り当てる）
+Marker  1 ── N MarkerHistory
 Marker  1 ── N Memo
 Conversation 1 ── N Memo（target_type="conversation"の場合）
 ```
@@ -246,11 +239,10 @@ Conversation 1 ── N Memo（target_type="conversation"の場合）
    - Phase1：同じTagが付いた会話同士は自動的に横断検索で並ぶため、ある程度は自然に発見できる
    - Phase2以降のバックログ：`ConversationLink`（会話間の明示的なリンク、例：「この会話はあの会話の続き/派生」）を検討。今は速度優先で見送り、実際に横断検索だけでは足りないという実感が出たら着手する（ピキさんの「思弁は観測バックログに退避する」という方針と一致）
 
-### 論点B：未分類（Inbox）の扱い（決定・現状維持）
-`project_id: null` の会話＝インポートしたがまだ整理していない状態、として「受信箱」ビューを持たせる。
+### 論点B：未分類（Inbox）の扱い（決定・2026-07-11更新）
+`project_id: null` の会話＝インポートしたがまだ整理していない状態、として「受信箱」ビューは残す。ただし情報フロー転換（VISION.md 3-3）により、Inboxは「必ず処理すべき受信箱」ではなく「横断検索で見つからない時のフォールバック閲覧」という副次的な位置づけに変わった。
 
-### 論点C：Summaryの再生成時の履歴（Phase1デフォルト）
-Phase1は上書きのみとし、履歴テーブル化はしない。VISION.mdの「知識の変化追跡」機能は別途Phase2で本格設計する際にまとめて対応する（Summary単体で先走って履歴化しない）。
+### ~~論点C：Summaryの再生成時の履歴~~ → 廃止（2026-07-11、Summary機能自体を廃止したため無効）
 
 ### 論点F：タグの3分類とMarkerTagの新設（決定）
 「Lumoraのタグ体系」検討により、以下が確定：
@@ -271,7 +263,7 @@ Phase1は上書きのみとし、履歴テーブル化はしない。VISION.md�
 
 ### user_idの持たせ方（実装確定：全テーブルに直接付与）
 
-**全テーブル（`Project` / `Theme` / `Conversation` / `Message` / `Tag` / `ConversationTag` / `MarkerTag` / `Marker` / `Memo` / `Summary` / `ImportBatch`）が`user_id`列を直接持ち、RLSは全テーブル共通の「own rows only」で判定する。**
+**全テーブル（`Project` / `Theme` / `Conversation` / `Message` / `Tag` / `ConversationTag` / `MarkerTag` / `Marker` / `MarkerHistory` / `Memo` / `ImportBatch`）が`user_id`列を直接持ち、RLSは全テーブル共通の「own rows only」で判定する。**（`Summary`は2026-07-11のマーカー中心アーキテクチャへの転換に伴いテーブル自体を廃止した）
 
 ```sql
 -- 全テーブル共通（実装済みマイグレーション準拠）

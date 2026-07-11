@@ -9,9 +9,10 @@
 - フロントエンド：React Native (Expo)。将来的なApp Store/Google Play配信を見据える
 - **PC利用の実現方式**：Expo Web（react-native-web）で同一コードベースからWebビルドを出力し、ブラウザ経由でPCからアクセスする。デスクトップ専用アプリ（Electron等）は作らない
 - バックエンド/DB：Supabase（Postgres + Auth + Storage）
-- AI処理：Supabase Edge Functionsからサーバーサイドで各社AI APIを呼び出す非同期ジョブとして実装
-  - **使用モデル（決定・2026-07-10）**：Claude Sonnet 5（`claude-sonnet-5`）をデフォルトとし、Edge Function環境変数`LUMORA_AI_MODEL`で切替可能にする（コード内にハードコードしない）。理由：要約・Topicタグは軽いタスクだが、Conceptタグ（抽象化ラベル）や「タグ付けに値する会話か」のスコープ判定はニュアンスのある判断が必要なため、まずは精度優先で開始し、コスト最適化はPhase2で実測してから判断する
-  - **実行方式（決定・2026-07-10）**：インポート時の自動実行はせず、会話一覧（Inbox）画面から会話単位で人間が手動起動する。理由：初回インポートは数百件規模になりうり、自動実行はAPIコスト急増のリスクがあるため（詳細：`data-model.md`「AiJob」）
+- AI処理：Supabase Edge Functionsからサーバーサイドで各社AI APIを呼び出す
+  - **情報フローの転換（決定・2026-07-11）**：AIは「発見するAI」から「（人間が選んだ後に）整理するAI」に役割を変更した。旧方式（会話全体をAIが分析し要約・タグ・マーカーを自動提案）は廃止。新方式では、人間が横断検索で会話を発掘し本文を選択して手動でマーカー（Arca）を作成した**後にのみ**、AIはそのマーカー群に対してTopic/Conceptタグを提案する（`organize-markers` Edge Function）。会話単位のSummary生成・マーカー自動発見機能は実装しない（詳細：`data-model.md`「2026-07-11 マーカー中心アーキテクチャへの転換」、`VISION.md`「3-3」）
+  - **使用モデル（決定・2026-07-10、転換後も継続）**：Claude Sonnet 5（`claude-sonnet-5`）をデフォルトとし、Edge Function環境変数`LUMORA_AI_MODEL`で切替可能にする（コード内にハードコードしない）
+  - **実行方式（決定・2026-07-11更新）**：Arca画面（旧S9）から、未タグのマーカーをまとめて選択して人間が手動起動する。バッチサイズは人間が選んだ範囲に限られるため小さく、非同期ジョブテーブル（`ai_jobs`）は新設せず同期呼び出しで完結させる。旧`ai_jobs`テーブルは物理削除せず、転換前の実行ログとして残す（新方式では書き込まれない）
 - 全文検索：Postgres標準の全文検索機能から開始（専用検索エンジンへの移行は必要になってから判断）
   - **方式決定（決定・2026-07-11、Step8着手時）**：tsvectorは日本語の分かち書きに対応しないため使わず、pg_trgm（トライグラム部分一致）を採用。pgroongaは高精度だがSupabase側の拡張有効化・運用コストが増すため、Phase1の個人利用規模ではpg_trgmで十分と判断。会話タイトル/本文/要約を横断する`search_conversations` RPC関数（`security invoker`でRLSがそのまま効く）を用意した
 - プッシュ通知：Expo Notifications（レビュー待ち通知）
@@ -54,7 +55,7 @@
 ## 2. 実装上の判断原則
 
 ### 2-1. Proposed/Confirmedの状態管理は妥協しない
-- Tag（ConversationTag/MarkerTag両方） / Summary / Marker はすべて必ず`proposed → confirmed/rejected`の状態遷移を経る
+- Tag（ConversationTag/MarkerTag両方）はAI提案分について必ず`proposed → confirmed/rejected`の状態遷移を経る。Markerは2026-07-11の転換によりAIが提案することがなくなったため常に`proposed_by: human`＝作成と同時にconfirmed扱いとなる（`confirmed`＝Arca追加）。Summaryは同転換で機能自体を廃止した（詳細：`data-model.md`）
 - **一括承認ボタンは実装しない**（Phase1のNon-goalとして明示的に決定済み）。「全部確認する手間を減らしたい」という誘惑があっても、仕様書の決定を優先する
 - rejectedは論理削除として扱い、物理削除しない（判断履歴として保持する設計思想のため）
 
@@ -80,21 +81,23 @@
 
 ## 3. 推奨する実装順序
 
-Phase1機能の依存関係に基づく（詳細：`ux-flow-and-screens.md`関連の議論）：
+Phase1機能の依存関係に基づく（詳細：`ux-flow-and-screens.md`関連の議論）。①〜⑥は実装済み（Step0〜Step8）。2026-07-11のマーカー中心アーキテクチャへの転換により、③〜⑤の役割は下記の通り変わった：
 
 ```
 ① インポート（4社対応、パーサーの安定性優先）
    ↓
-② データモデル実装（Project/Theme/Conversation/Tag/MarkerTag/ConversationTag/Marker/Memo/Summary）
+② データモデル実装（Project/Theme/Conversation/Tag/MarkerTag/ConversationTag/Marker/Memo/ImportBatch。Summaryは廃止）
    ↓
-③ AI要約生成・重要箇所抽出（AI処理のバックエンド）
+⑥ 横断検索（旧・最後の工程から、価値の中核として最優先の体験に格上げ）
    ↓
-④ タグ候補生成＋確定UI（proposed→confirmedフロー。Topic/Concept=MarkerTag中心、Role=Marker.role_tag）
+⑤ マーカー確定UI（横断検索で見つけた会話の本文を人間が選択→手動でマーカー作成＝Arca追加。範囲調整＋色選択、デバイス別）
    ↓
-⑤ マーカー確定UI（範囲調整＋色選択、デバイス別）
+④ タグ確定UI（AIが未タグのマーカーに対してTopic/Conceptタグを提案→proposed→confirmed/rejectedフロー。Role=Marker.role_tagは人間が直接設定）
    ↓
-⑥ 横断検索
+③ AIタグ整理（`organize-markers` Edge Function。会話全体のAI要約・マーカー自動発見は行わない）
 ```
+
+上記は「実装した順序」ではなく「新しい情報フローにおける体験順序」を示す（実装自体は旧順序①〜⑥で完了済み。番号はCLAUDE.md内の対応関係を保つためそのまま残す）。
 
 ①のインポートが最もリスクが高いため、他機能に先んじて実装・検証すること。
 

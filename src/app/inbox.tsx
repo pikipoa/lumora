@@ -3,11 +3,18 @@
  * クエリパラメータなし＝未分類（Inbox。project_id null）。
  * projectId＝そのプロジェクト直下でテーマ未割当の会話。themeId＝そのテーマ内の会話。
  * AI分析の手動起動ボタンもここに置く（Step4から引き続き）。
+ *
+ * 実データ検証後のフィードバック（2026-07-11）を反映：
+ * - 並び順はimported_at（インポート時刻）ではなく、元の会話日時（created_at）でソート＋月別グルーピング表示
+ *   （一括インポートするとimported_atがほぼ同時刻になり順序の意味が無くなるため）
+ * - 「保留」機能：雑談等の不要な会話を一覧から論理的に隅へ追いやれる（held_at）。
+ *   保留一覧からのみ、明示的な操作で物理削除もできる（CLAUDE.md 2-1の「rejectedは物理削除しない」
+ *   思想を踏襲しつつ、会話単位の大掃除ニーズには2段階目として物理削除も用意する）
  */
 
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, SectionList, StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -28,6 +35,7 @@ interface ConversationRow {
   id: string;
   title: string;
   source: string;
+  created_at: string | null;
   imported_at: string;
   latestJobStatus: string | null;
 }
@@ -38,6 +46,23 @@ interface ProjectOption {
 }
 
 type RowState = { kind: 'idle' } | { kind: 'running' } | { kind: 'done'; note: string } | { kind: 'error'; note: string };
+
+function monthKey(iso: string | null): string {
+  if (!iso) return '日付不明';
+  const d = new Date(iso);
+  return `${d.getFullYear()}年${d.getMonth() + 1}月`;
+}
+
+function groupByMonth(rows: ConversationRow[]): { title: string; data: ConversationRow[] }[] {
+  const sections: { title: string; data: ConversationRow[] }[] = [];
+  for (const row of rows) {
+    const key = monthKey(row.created_at);
+    const last = sections[sections.length - 1];
+    if (last && last.title === key) last.data.push(row);
+    else sections.push({ title: key, data: [row] });
+  }
+  return sections;
+}
 
 export default function InboxScreen() {
   const { session, loading } = useAuth();
@@ -53,15 +78,19 @@ export default function InboxScreen() {
   const [headerLabel, setHeaderLabel] = useState('未分類（Inbox）');
   const [projectOptions, setProjectOptions] = useState<ProjectOption[] | null>(null);
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [showHeld, setShowHeld] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const isInboxMode = !projectId && !themeId;
 
   const load = useCallback(async () => {
     let query = supabase
       .from('conversations')
-      .select('id, title, source, imported_at')
-      .order('imported_at', { ascending: false })
-      .limit(200);
+      .select('id, title, source, created_at, imported_at')
+      .order('created_at', { ascending: false, nullsFirst: false })
+      .limit(2000);
+
+    query = showHeld ? query.not('held_at', 'is', null) : query.is('held_at', null);
 
     if (themeId) {
       query = query.eq('theme_id', themeId);
@@ -91,7 +120,7 @@ export default function InboxScreen() {
         latestJobStatus: latestJob.get(c.id) ?? null,
       })),
     );
-  }, [projectId, themeId, themeName]);
+  }, [projectId, themeId, themeName, showHeld]);
 
   useEffect(() => {
     if (session) load();
@@ -132,25 +161,58 @@ export default function InboxScreen() {
     load();
   }
 
+  async function holdConversation(conversationId: string) {
+    await supabase.from('conversations').update({ held_at: new Date().toISOString() }).eq('id', conversationId);
+    load();
+  }
+
+  async function restoreConversation(conversationId: string) {
+    await supabase.from('conversations').update({ held_at: null }).eq('id', conversationId);
+    load();
+  }
+
+  async function deleteConversation(conversationId: string) {
+    await supabase.from('conversations').delete().eq('id', conversationId);
+    setConfirmDeleteId(null);
+    load();
+  }
+
   return (
     <ThemedView style={styles.container}>
-      <FlatList
+      <SectionList
         contentContainerStyle={styles.content}
-        data={rows ?? []}
+        sections={rows ? groupByMonth(rows) : []}
         keyExtractor={(item) => item.id}
+        stickySectionHeadersEnabled
+        renderSectionHeader={({ section }) => (
+          <ThemedView type="background" style={styles.sectionHeader}>
+            <ThemedText type="smallBold">{section.title}</ThemedText>
+          </ThemedView>
+        )}
         ListHeaderComponent={
           <>
-            <ThemedText type="smallBold">{headerLabel}</ThemedText>
-            <ThemedText type="small" style={styles.note}>
-              「AI分析」を押すと、その会話の本文がEdge Function経由でClaude APIに送信され、要約・タグ・重要箇所が提案（Ore）として生成されます。
-            </ThemedText>
+            <ThemedView style={styles.rowBetween}>
+              <ThemedText type="smallBold">{showHeld ? `${headerLabel}（保留一覧）` : headerLabel}</ThemedText>
+              {isInboxMode && (
+                <Pressable onPress={() => setShowHeld((v) => !v)} testID="toggle-held">
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {showHeld ? '通常一覧に戻る' : '保留一覧を見る'}
+                  </ThemedText>
+                </Pressable>
+              )}
+            </ThemedView>
+            {!showHeld && (
+              <ThemedText type="small" style={styles.note}>
+                「AI分析」を押すと、その会話の本文がEdge Function経由でClaude APIに送信され、要約・タグ・重要箇所が提案（Ore）として生成されます。
+              </ThemedText>
+            )}
           </>
         }
         ListEmptyComponent={
           rows === null ? (
             <ActivityIndicator style={{ marginTop: Spacing.five }} />
           ) : (
-            <ThemedText style={styles.note}>会話がまだありません。</ThemedText>
+            <ThemedText style={styles.note}>{showHeld ? '保留中の会話はありません。' : '会話がまだありません。'}</ThemedText>
           )
         }
         renderItem={({ item }) => {
@@ -166,7 +228,7 @@ export default function InboxScreen() {
                 </ThemedText>
                 <ThemedText type="small">
                   {SOURCE_LABEL[item.source] ?? item.source} ・{' '}
-                  {new Date(item.imported_at).toLocaleDateString('ja-JP')}
+                  {item.created_at ? new Date(item.created_at).toLocaleDateString('ja-JP') : '日付不明'}
                   {item.latestJobStatus === 'done' && ' ・ 分析済み'}
                 </ThemedText>
               </Pressable>
@@ -178,32 +240,75 @@ export default function InboxScreen() {
                 </ThemedText>
               )}
 
-              <ThemedView style={styles.row}>
-                <Pressable
-                  style={[styles.button, state.kind === 'running' && styles.buttonDisabled]}
-                  disabled={state.kind === 'running'}
-                  onPress={() => runAnalysis(item.id)}
-                  testID={`analyze-${item.id}`}
-                >
-                  {state.kind === 'running' ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <ThemedText style={styles.buttonText}>
-                      🤖 AI分析{item.latestJobStatus === 'done' ? '（再実行）' : 'を実行'}
-                    </ThemedText>
-                  )}
-                </Pressable>
-
-                {isInboxMode && (
+              {showHeld ? (
+                <ThemedView style={styles.row}>
                   <Pressable
                     style={styles.buttonOutline}
-                    onPress={() => openAssignPicker(item.id)}
-                    testID={`assign-${item.id}`}
+                    onPress={() => restoreConversation(item.id)}
+                    testID={`restore-${item.id}`}
                   >
-                    <ThemedText type="small">プロジェクトに割り当てる</ThemedText>
+                    <ThemedText type="small">元に戻す</ThemedText>
                   </Pressable>
-                )}
-              </ThemedView>
+                  {confirmDeleteId === item.id ? (
+                    <>
+                      <ThemedText type="small" style={styles.error}>
+                        本当に削除しますか？元に戻せません
+                      </ThemedText>
+                      <Pressable
+                        style={styles.buttonDanger}
+                        onPress={() => deleteConversation(item.id)}
+                        testID={`confirm-delete-${item.id}`}
+                      >
+                        <ThemedText style={styles.buttonText}>完全に削除</ThemedText>
+                      </Pressable>
+                      <Pressable style={styles.buttonOutline} onPress={() => setConfirmDeleteId(null)}>
+                        <ThemedText type="small">キャンセル</ThemedText>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <Pressable
+                      style={styles.buttonOutline}
+                      onPress={() => setConfirmDeleteId(item.id)}
+                      testID={`delete-${item.id}`}
+                    >
+                      <ThemedText type="small" style={styles.error}>
+                        完全に削除
+                      </ThemedText>
+                    </Pressable>
+                  )}
+                </ThemedView>
+              ) : (
+                <ThemedView style={styles.row}>
+                  <Pressable
+                    style={[styles.button, state.kind === 'running' && styles.buttonDisabled]}
+                    disabled={state.kind === 'running'}
+                    onPress={() => runAnalysis(item.id)}
+                    testID={`analyze-${item.id}`}
+                  >
+                    {state.kind === 'running' ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <ThemedText style={styles.buttonText}>
+                        🤖 AI分析{item.latestJobStatus === 'done' ? '（再実行）' : 'を実行'}
+                      </ThemedText>
+                    )}
+                  </Pressable>
+
+                  {isInboxMode && (
+                    <Pressable
+                      style={styles.buttonOutline}
+                      onPress={() => openAssignPicker(item.id)}
+                      testID={`assign-${item.id}`}
+                    >
+                      <ThemedText type="small">プロジェクトに割り当てる</ThemedText>
+                    </Pressable>
+                  )}
+
+                  <Pressable style={styles.buttonOutline} onPress={() => holdConversation(item.id)} testID={`hold-${item.id}`}>
+                    <ThemedText type="small">保留にする</ThemedText>
+                  </Pressable>
+                </ThemedView>
+              )}
 
               {assigningId === item.id && (
                 <ThemedView style={styles.tagWrap}>
@@ -242,10 +347,19 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   note: { opacity: 0.7 },
-  card: { borderRadius: Spacing.two, padding: Spacing.three, gap: Spacing.two },
-  row: { flexDirection: 'row', gap: Spacing.two, flexWrap: 'wrap' },
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sectionHeader: { paddingVertical: Spacing.two },
+  card: { borderRadius: Spacing.two, padding: Spacing.three, gap: Spacing.two, marginBottom: Spacing.two },
+  row: { flexDirection: 'row', gap: Spacing.two, flexWrap: 'wrap', alignItems: 'center' },
   button: {
     backgroundColor: '#208AEF',
+    borderRadius: Spacing.two,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    alignSelf: 'flex-start',
+  },
+  buttonDanger: {
+    backgroundColor: '#D93025',
     borderRadius: Spacing.two,
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,

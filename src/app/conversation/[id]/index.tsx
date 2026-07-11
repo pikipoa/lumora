@@ -108,6 +108,7 @@ export default function ConversationDetailScreen() {
   const [newTagName, setNewTagName] = useState('');
   const [newTagType, setNewTagType] = useState<'topic' | 'concept'>('topic');
   const [memoDraft, setMemoDraft] = useState('');
+  const [memoSaved, setMemoSaved] = useState(false);
   const [pendingSelection, setPendingSelection] = useState<PendingSelection | null>(null);
   const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
   const messageRefs = useRef<Record<string, View | null>>({});
@@ -348,8 +349,12 @@ export default function ConversationDetailScreen() {
       await supabase
         .from('memos')
         .insert({ target_type: 'conversation', target_id: id, body: memoDraft, user_id: userId });
+    } else {
+      return; // 空のまま保存しても何もすることが無いので、フィードバックも出さない
     }
-    load();
+    await load();
+    setMemoSaved(true);
+    setTimeout(() => setMemoSaved(false), 2000);
   }
 
   const layersByMessage = useMemo(() => {
@@ -644,14 +649,24 @@ export default function ConversationDetailScreen() {
           <TextInput
             style={styles.textArea}
             value={memoDraft}
-            onChangeText={setMemoDraft}
+            onChangeText={(t) => {
+              setMemoDraft(t);
+              setMemoSaved(false);
+            }}
             multiline
             placeholder="この会話についてのメモ"
             testID="memo-input"
           />
-          <Pressable style={styles.smallButton} onPress={saveMemo} testID="memo-save-button">
-            <ThemedText style={styles.smallButtonText}>保存</ThemedText>
-          </Pressable>
+          <ThemedView style={styles.row}>
+            <Pressable style={styles.smallButton} onPress={saveMemo} testID="memo-save-button">
+              <ThemedText style={styles.smallButtonText}>保存</ThemedText>
+            </Pressable>
+            {memoSaved && (
+              <ThemedText type="small" testID="memo-saved-indicator">
+                ✅ 保存しました
+              </ThemedText>
+            )}
+          </ThemedView>
         </ThemedView>
       </ScrollView>
     </ThemedView>

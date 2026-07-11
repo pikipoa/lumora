@@ -17,7 +17,8 @@ export default function RootLayout() {
           <Stack.Screen name="import" options={{ title: 'インポート' }} />
           <Stack.Screen name="import-summary" options={{ title: 'インポート完了' }} />
           <Stack.Screen name="inbox" options={{ title: '会話一覧' }} />
-          <Stack.Screen name="conversation/[id]" options={{ title: '会話詳細' }} />
+          <Stack.Screen name="conversation/[id]/index" options={{ title: '会話詳細' }} />
+          <Stack.Screen name="conversation/[id]/review" options={{ title: 'マーカーレビュー' }} />
           <Stack.Screen name="projects" options={{ title: 'プロジェクト' }} />
           <Stack.Screen name="projects/[id]" options={{ title: 'プロジェクト詳細' }} />
         </Stack>

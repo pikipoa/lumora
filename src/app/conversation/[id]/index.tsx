@@ -361,6 +361,7 @@ export default function ConversationDetailScreen() {
   }, [markers, messages]);
 
   const editingMarker = markers.find((m) => m.id === editingMarkerId) ?? null;
+  const proposedMarkerCount = markers.filter((m) => m.status === 'proposed').length;
 
   if (loading) {
     return (
@@ -576,6 +577,15 @@ export default function ConversationDetailScreen() {
               </ThemedView>
             );
           })}
+          {proposedMarkerCount > 0 && (
+            <Pressable
+              style={styles.smallButtonOutline}
+              onPress={() => router.push({ pathname: '/conversation/[id]/review', params: { id: id! } })}
+              testID="start-marker-review"
+            >
+              <ThemedText type="small">まとめてマーカーレビュー（{proposedMarkerCount}件）→</ThemedText>
+            </Pressable>
+          )}
         </ThemedView>
 
         {pendingSelection && (

@@ -48,9 +48,7 @@ interface ConversationDetail {
   title: string;
   source: string;
   project_id: string | null;
-  theme_id: string | null;
   projects: { name: string } | null;
-  themes: { name: string } | null;
 }
 
 interface MessageRow {
@@ -115,7 +113,7 @@ export default function ConversationDetailScreen() {
       await Promise.all([
         supabase
           .from('conversations')
-          .select('id, title, source, project_id, theme_id, projects(name), themes(name)')
+          .select('id, title, source, project_id, projects(name)')
           .eq('id', id)
           .single(),
         supabase.from('messages').select('id, role, content, seq').eq('conversation_id', id).order('seq'),
@@ -391,7 +389,6 @@ export default function ConversationDetailScreen() {
 
         <ThemedText type="small" themeColor="textSecondary">
           {conversation.projects?.name ?? '未分類（Inbox）'}
-          {conversation.themes?.name ? ` / ${conversation.themes.name}` : ''}
         </ThemedText>
 
         <ThemedText type="subtitle">{conversation.title}</ThemedText>

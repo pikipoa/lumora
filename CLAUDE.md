@@ -10,7 +10,7 @@
 - **PC利用の実現方式**：Expo Web（react-native-web）で同一コードベースからWebビルドを出力し、ブラウザ経由でPCからアクセスする。デスクトップ専用アプリ（Electron等）は作らない
 - バックエンド/DB：Supabase（Postgres + Auth + Storage）
 - AI処理：Supabase Edge Functionsからサーバーサイドで各社AI APIを呼び出す
-  - **情報フローの転換（決定・2026-07-11）**：AIは「発見するAI」から「（人間が選んだ後に）整理するAI」に役割を変更した。旧方式（会話全体をAIが分析し要約・タグ・マーカーを自動提案）は廃止。新方式では、人間が横断検索で会話を発掘し本文を選択して手動でマーカー（Arca）を作成した**後にのみ**、AIはそのマーカー群に対してTopic/Conceptタグを提案する（`organize-markers` Edge Function）。会話単位のSummary生成・マーカー自動発見機能は実装しない（詳細：`data-model.md`「2026-07-11 マーカー中心アーキテクチャへの転換」、`VISION.md`「3-3」）
+  - **情報フローの転換（決定・2026-07-11）**：AIは「発見するAI」から「（人間が選んだ後に）整理するAI」に役割を変更した。旧方式（会話全体をAIが分析し要約・タグ・マーカーを自動提案）は廃止。新方式では、人間が横断検索で会話を発掘し本文を選択して手動でマーカー（Arca）を作成した**後にのみ**、AIが2段階で整理する：①`organize-markers`がTopic/Conceptタグ（AI内部用の検索メタデータ）を提案→②`organize-wings`がタグを手がかりにWing（人間向けの章立て）を提案する（Realm単位、Tag/Wingの役割分離：`CLAUDE.md`該当節参照）。会話単位のSummary生成・マーカー自動発見機能は実装しない（詳細：`data-model.md`「2026-07-11 マーカー中心アーキテクチャへの転換」「2026-07-11 Tag/Wingの役割分離」、`VISION.md`「3-3」）
   - **使用モデル（決定・2026-07-10、転換後も継続）**：Claude Sonnet 5（`claude-sonnet-5`）をデフォルトとし、Edge Function環境変数`LUMORA_AI_MODEL`で切替可能にする（コード内にハードコードしない）
   - **実行方式（決定・2026-07-11更新）**：Arca画面（旧S9）から、未タグのマーカーをまとめて選択して人間が手動起動する。バッチサイズは人間が選んだ範囲に限られるため小さく、非同期ジョブテーブル（`ai_jobs`）は新設せず同期呼び出しで完結させる。旧`ai_jobs`テーブルは物理削除せず、転換前の実行ログとして残す（新方式では書き込まれない）
 - 全文検索：Postgres標準の全文検索機能から開始（専用検索エンジンへの移行は必要になってから判断）
@@ -41,6 +41,13 @@
 **ブランド命名はUI表示層のみに適用し、データモデルには持ち込まない**：アプリ名はLumora、UI表示名はProject→Realm、Theme→Wing、Conversation→Chronicle、`proposed`状態→**Ore**、`confirmed`/`edited`状態→Arcaという対応（詳細：`VISION.md`「8. ブランド世界観・命名」）。**Beaconは`proposed`状態のラベルではない**（検討初期の案から訂正済み）。Beaconは「AIによる関連発見機能」を指す言葉としてPhase2バックログに予約されているため、Phase1の実装でBeaconという語を`proposed`状態の意味で使わないこと。データベースのテーブル名・フィールド名・API・変数名は引き続き`Project`/`Theme`/`Conversation`/`Tag`/`Marker`/`Summary`/`status: proposed/confirmed`のまま実装すること。ブランド名の変換はフロントエンドの表示コンポーネント（i18n/文言定義ファイル等）に閉じ込め、バックエンド・DB層のコードにブランド名を持ち込まない。
 
 **タグは3種類、主戦場はMarker単位**：Topic/Concept（自由語彙、`Tag.tag_type`で区別）とRole（固定enum、`Marker.role_tag`）は別の実装。タグ付けの主なUIフローは会話（Conversation/Chronicle）全体ではなく個々の発見物（Marker）単位に対して行う。`ConversationTag`（会話全体への大まかなタグ）と`MarkerTag`（発見物単位の正確なタグ）は両方実装し、削除・統合しないこと（詳細：`data-model.md`「論点F」）。
+
+**Tag/Wingの役割は完全に分離する（決定・2026-07-11）**：
+- **Tag**＝AIが検索・分類のために使う内部メタデータ。ユーザーが意識しなくてよい（Googleフォトの「犬」「猫」タグと同じ）。UIから「タグ」という語を積極的に消してよい（例：Arcaの整理ボタンは「整理する」であって「タグを整理」ではない）
+- **Wing**＝人間が読むための「本の目次・章立て」（DB名は`themes`）。TagをAIがクラスタリングした結果として生成される粗い単位で、複数のMarkerを束ねるリンク（多対多、`MarkerWing`）。Marker本文は複製しない（1つのMarkerが複数のWingに参照として所属できる）
+- **RealmはTagを一切見せない**。生のTag名を出してよいのはArcaのみ（Arcaは「知識の種」＝作業中のビューという位置づけのため）。Realm/Wing周りの画面を実装する際は、Tag名がUIに漏れていないか確認すること
+- Wingの提案（AI）は「Realmに紐づくMarkerが蓄積され、Knowledge Organize（`organize-wings`）を実行した時」にのみ行う。空のRealm作成時にはWingを提案しない（データが無い状態での提案は精度が低いため）
+- 「AI発見Realm」（Arcaに蓄積されたMarkerからAIが新しいRealm候補自体を提案する機能）はスコープ外。VISION.md「9. Beaconバックログ」の領域と重なるため、着手する場合は位置づけを整理してから別途判断する
 
 ---
 

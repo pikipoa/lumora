@@ -1,7 +1,8 @@
 /**
- * S5 会話一覧（Theme内 or Inbox）。ux-flow-and-screens.md §2-1準拠。
+ * S5 会話一覧（Realm割当分 or Inbox）。ux-flow-and-screens.md §2-1準拠。
  * クエリパラメータなし＝未分類（Inbox。project_id null）。
- * projectId＝そのプロジェクト直下でテーマ未割当の会話。themeId＝そのテーマ内の会話。
+ * projectId＝そのプロジェクトに割り当て済みの会話（旧・会話単位の割当機能。marker単位の
+ * 割当が主戦場になった現在は副次的な導線として残す）。
  *
  * 【設計思想の転換（2026-07-11）】この画面はもう「AI分析の起点」ではない。
  * マーカーは横断検索（S8）→会話詳細（S6）で本文を選択して作る一次動線が主役になったため、
@@ -67,11 +68,7 @@ function groupByMonth(rows: ConversationRow[]): { title: string; data: Conversat
 export default function InboxScreen() {
   const { session, loading } = useAuth();
   const router = useRouter();
-  const { projectId, themeId, themeName } = useLocalSearchParams<{
-    projectId?: string;
-    themeId?: string;
-    themeName?: string;
-  }>();
+  const { projectId } = useLocalSearchParams<{ projectId?: string }>();
 
   const [rows, setRows] = useState<ConversationRow[] | null>(null);
   const [headerLabel, setHeaderLabel] = useState('未分類（Inbox）');
@@ -80,7 +77,7 @@ export default function InboxScreen() {
   const [showHeld, setShowHeld] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const isInboxMode = !projectId && !themeId;
+  const isInboxMode = !projectId;
 
   const load = useCallback(async () => {
     let query = supabase
@@ -91,13 +88,10 @@ export default function InboxScreen() {
 
     query = showHeld ? query.not('held_at', 'is', null) : query.is('held_at', null);
 
-    if (themeId) {
-      query = query.eq('theme_id', themeId);
-      setHeaderLabel(themeName ? `テーマ: ${themeName}` : 'テーマ内の会話');
-    } else if (projectId) {
-      query = query.eq('project_id', projectId).is('theme_id', null);
+    if (projectId) {
+      query = query.eq('project_id', projectId);
       const { data: project } = await supabase.from('projects').select('name').eq('id', projectId).single();
-      setHeaderLabel(project ? `${project.name}：未割当の会話` : 'プロジェクト内の会話');
+      setHeaderLabel(project ? `${project.name}：割り当て済みの会話` : 'プロジェクト内の会話');
     } else {
       query = query.is('project_id', null);
       setHeaderLabel('未分類（Inbox）');
@@ -105,7 +99,7 @@ export default function InboxScreen() {
 
     const { data: conversations } = await query;
     setRows(conversations ?? []);
-  }, [projectId, themeId, themeName, showHeld]);
+  }, [projectId, showHeld]);
 
   useEffect(() => {
     if (session) load();

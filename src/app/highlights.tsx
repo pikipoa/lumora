@@ -6,15 +6,22 @@
  *   手前の、本にマーカーを引いた瞬間の感覚に最も近い分類軸として採用した
  * - 色フォルダ一覧（`colorFilter === null`）はタイポグラフィと色ドットのみ。カード・
  *   絵文字・説明文は置かない（DESIGN.md「Remove Before Add」「Typography First」）
- * - フォルダの中（`colorFilter`が選ばれた状態）でRealm/Wingの絞り込みチップを表示する
- *   （承認済み：色の中でさらにRealm/Wingで絞れる方が実用的なため残した）
- * - Realm詳細（S4）から`projectId`/`wing`付きで遷移してきた場合も色フォルダ一覧を経由
- *   させる。フォルダの件数はその時点のRealm/Wingフィルタでスコープされる
- * - Wing（Theme相当）はMarkerTagで代替：新テーブルは追加せず、選択中の色×Realm内の
- *   マーカーが持つタグでの絞り込み表示としてWingを実現する
- * - 「AIでタグを整理」：人間が確定させた（confirmed）が未タグのマーカー群だけを対象に、
- *   Edge Function `organize-markers` を呼びTopic/ConceptのMarkerTagを提案する
+ * - フォルダの中（`colorFilter`が選ばれた状態）でRealm/Tagの絞り込みチップを表示する
+ *   （承認済み：色の中でさらにRealm/Tagで絞れる方が実用的なため残した）
+ * - Realm詳細（S4）から`projectId`付きで遷移してきた場合も色フォルダ一覧を経由させる。
+ *   フォルダの件数はその時点のRealmフィルタでスコープされる
+ * - 「整理する」：人間が確定させた（confirmed）が未タグのマーカー群だけを対象に、
+ *   Edge Function `organize-markers` を呼びTopic/ConceptのTagを提案する
  *   （AIは発見しない・整理するだけ、という確定方針）。色横断の操作なのでフォルダ一覧側に置く
+ *
+ * 【Tag/Wingの役割分離（2026-07-11）】TagはAIが検索・分類のために使う内部メタデータ、
+ * Wingは人間が読むための「本の目次・章立て」として役割を分離した。上記のタグ絞り込み
+ * チップ（旧実装では「Wingフィルタ」と呼んでいたが実体はタグ名フィルタ）は`tagFilter`と
+ * 改名し、Tagであることを明確にした。本物のWingはRealm詳細（`projects/[id].tsx`）が
+ * 本物の`themes`＋`marker_wings`で扱う。Arcaでは、Realm割当済みのマーカーに対して
+ * 「Wingに追加」チップピッカーを設け、そのRealmのWingへ手動で参照リンクできるようにする
+ * （Wingは複数所属可・Marker本文は複製しない。詳細：
+ * C:\Users\user\.claude\plans\parsed-enchanting-dream.md「2026-07-11 Tag/Wingの役割分離」）
  */
 
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -60,6 +67,18 @@ interface MarkerTagRow {
   tags: TagRef;
 }
 
+interface WingRef {
+  id: string;
+  name: string;
+  icon: string | null;
+}
+
+interface MarkerWingRow {
+  id: string;
+  status: 'proposed' | 'confirmed' | 'rejected';
+  themes: WingRef;
+}
+
 interface HighlightRow {
   id: string;
   quoted_text: string;
@@ -69,6 +88,7 @@ interface HighlightRow {
   project_id: string | null;
   conversations: { title: string } | null;
   marker_tags: MarkerTagRow[];
+  marker_wings: MarkerWingRow[];
 }
 
 interface ProjectOption {
@@ -79,32 +99,33 @@ interface ProjectOption {
 export default function HighlightsScreen() {
   const { session, loading } = useAuth();
   const router = useRouter();
-  const { projectId: initialProjectId, wing: initialWing } = useLocalSearchParams<{
-    projectId?: string;
-    wing?: string;
-  }>();
+  const { projectId: initialProjectId } = useLocalSearchParams<{ projectId?: string }>();
   const [rows, setRows] = useState<HighlightRow[] | null>(null);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [wings, setWings] = useState<(WingRef & { project_id: string })[]>([]);
   const [projectFilter, setProjectFilter] = useState<'all' | 'unassigned' | string>(initialProjectId ?? 'all');
-  const [wingFilter, setWingFilter] = useState<string | null>(initialWing ?? null);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [colorFilter, setColorFilter] = useState<string | null>(null);
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [wingPickerId, setWingPickerId] = useState<string | null>(null);
   const [organizing, setOrganizing] = useState(false);
   const [organizeNote, setOrganizeNote] = useState<string | null>(null);
 
   const load = async () => {
-    const [{ data: mk }, { data: proj }] = await Promise.all([
+    const [{ data: mk }, { data: proj }, { data: wingRows }] = await Promise.all([
       supabase
         .from('markers')
         .select(
-          'id, quoted_text, color, role_tag, conversation_id, project_id, conversations(title), marker_tags(id, status, tags(id, name, tag_type))',
+          'id, quoted_text, color, role_tag, conversation_id, project_id, conversations(title), marker_tags(id, status, tags(id, name, tag_type)), marker_wings(id, status, themes(id, name, icon))',
         )
         .eq('status', 'confirmed')
         .order('created_at', { ascending: false }),
       supabase.from('projects').select('id, name').order('created_at', { ascending: false }),
+      supabase.from('themes').select('id, name, icon, project_id'),
     ]);
     setRows((mk as unknown as HighlightRow[]) ?? []);
     setProjects(proj ?? []);
+    setWings((wingRows as unknown as (WingRef & { project_id: string })[]) ?? []);
   };
 
   useEffect(() => {
@@ -134,7 +155,7 @@ export default function HighlightsScreen() {
     return byProject.filter((r) => r.color === colorFilter);
   }, [byProject, colorFilter]);
 
-  const wingOptions = useMemo(() => {
+  const tagOptions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const r of byColor) {
       for (const mt of r.marker_tags) {
@@ -146,20 +167,20 @@ export default function HighlightsScreen() {
   }, [byColor]);
 
   const visible = useMemo(() => {
-    if (!wingFilter) return byColor;
-    return byColor.filter((r) => r.marker_tags.some((mt) => mt.status !== 'rejected' && mt.tags.name === wingFilter));
-  }, [byColor, wingFilter]);
+    if (!tagFilter) return byColor;
+    return byColor.filter((r) => r.marker_tags.some((mt) => mt.status !== 'rejected' && mt.tags.name === tagFilter));
+  }, [byColor, tagFilter]);
 
   const untaggedInView = byProject.filter((r) => r.marker_tags.length === 0);
 
   function openColor(color: string) {
     setColorFilter(color);
-    setWingFilter(null);
+    setTagFilter(null);
   }
 
   function backToFolders() {
     setColorFilter(null);
-    setWingFilter(null);
+    setTagFilter(null);
   }
 
   async function assignToProject(markerId: string, projectId: string) {
@@ -173,6 +194,22 @@ export default function HighlightsScreen() {
       .from('marker_tags')
       .update({ status, confirmed_at: status === 'confirmed' ? new Date().toISOString() : null })
       .eq('id', mtId);
+    load();
+  }
+
+  async function assignToWing(markerId: string, wingId: string) {
+    const { data: userRes } = await supabase.auth.getUser();
+    const userId = userRes.user?.id;
+    if (!userId) return;
+    await supabase
+      .from('marker_wings')
+      .insert({ user_id: userId, marker_id: markerId, wing_id: wingId, status: 'confirmed', proposed_by: 'human', confirmed_at: new Date().toISOString() });
+    setWingPickerId(null);
+    load();
+  }
+
+  async function removeFromWing(markerWingId: string) {
+    await supabase.from('marker_wings').update({ status: 'rejected' }).eq('id', markerWingId);
     load();
   }
 
@@ -276,15 +313,15 @@ export default function HighlightsScreen() {
               ))}
             </ThemedView>
 
-            {/* Wingフィルタ（選択中Realm×色内のタグによる絞り込み） */}
-            {wingOptions.length > 0 && (
+            {/* Tagフィルタ（選択中Realm×色内のタグによる絞り込み） */}
+            {tagOptions.length > 0 && (
               <ThemedView style={styles.tagWrap}>
-                {wingOptions.map(([name, count]) => (
+                {tagOptions.map(([name, count]) => (
                   <Pressable
                     key={name}
-                    style={[styles.chip, wingFilter === name && styles.chipActive]}
-                    onPress={() => setWingFilter(wingFilter === name ? null : name)}
-                    testID={`filter-wing-${name}`}
+                    style={[styles.chip, tagFilter === name && styles.chipActive]}
+                    onPress={() => setTagFilter(tagFilter === name ? null : name)}
+                    testID={`filter-tag-${name}`}
                   >
                     <ThemedText type="small">
                       {name} ({count})
@@ -342,6 +379,49 @@ export default function HighlightsScreen() {
                             )}
                           </ThemedView>
                         ))}
+                    </ThemedView>
+                  )}
+
+                  {r.project_id && (
+                    <ThemedView style={styles.tagWrap}>
+                      {r.marker_wings
+                        .filter((mw) => mw.status === 'confirmed')
+                        .map((mw) => (
+                          <ThemedView key={mw.id} style={styles.tagChip}>
+                            <ThemedText type="small">
+                              {mw.themes.icon ?? '📖'} {mw.themes.name}
+                            </ThemedText>
+                            <Pressable onPress={() => removeFromWing(mw.id)} testID={`wing-remove-${mw.id}`}>
+                              <ThemedText type="small">✕</ThemedText>
+                            </Pressable>
+                          </ThemedView>
+                        ))}
+                      <Pressable
+                        style={styles.smallButtonOutline}
+                        onPress={() => setWingPickerId(wingPickerId === r.id ? null : r.id)}
+                        testID={`wing-picker-toggle-${r.id}`}
+                      >
+                        <ThemedText type="small">＋ Wing</ThemedText>
+                      </Pressable>
+                    </ThemedView>
+                  )}
+                  {wingPickerId === r.id && (
+                    <ThemedView style={styles.tagWrap}>
+                      {wings
+                        .filter((w) => w.project_id === r.project_id)
+                        .filter((w) => !r.marker_wings.some((mw) => mw.status !== 'rejected' && mw.themes.id === w.id))
+                        .map((w) => (
+                          <Pressable key={w.id} style={styles.chip} onPress={() => assignToWing(r.id, w.id)} testID={`assign-wing-${w.id}`}>
+                            <ThemedText type="small">
+                              {w.icon ?? '📖'} {w.name}
+                            </ThemedText>
+                          </Pressable>
+                        ))}
+                      {wings.filter((w) => w.project_id === r.project_id).length === 0 && (
+                        <ThemedText type="small" themeColor="textSecondary">
+                          このRealmにWingがまだありません
+                        </ThemedText>
+                      )}
                     </ThemedView>
                   )}
 

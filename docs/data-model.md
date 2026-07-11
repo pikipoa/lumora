@@ -32,15 +32,22 @@ Project {
 }
 ```
 
-### Theme（テーマ）
+### Theme（DB名。UI表示名は「Wing」）
 ```
 Theme {
   id: uuid
-  project_id: uuid          // 親Project（必須。Themeは単独では存在しない）
-  name: string              // 例："闘着場"
+  project_id: uuid          // 親Project/Realm（必須。単独では存在しない）
+  name: string              // 例："技術スタック"
+  icon: string | null       // Wingを象徴する絵文字1文字（2026-07-11追加）
   created_at: datetime
 }
 ```
+
+**Tag/Wingの役割分離（決定・2026-07-11）**：`VISION.md`の元々のブランド対応「Theme→Wing」に戻す形で、`themes`テーブルの意味を「会話が属するテーマ」から「Marker/Realmの人間向け章立て」へ転換した（Pivot-4時代の「WingはMarkerTagで代替」という節約実装は廃止）。
+- **Tag**＝AIが検索・分類のために使う内部メタデータ。ユーザーが意識しなくてよい（Googleフォトの「犬」「猫」タグと同じ位置づけ）
+- **Wing**＝人間が読むための「本の目次・章立て」。TagをAIがクラスタリングした結果として生成される、より粗い単位
+- **RealmはTagを一切見せない**（生のTag名を出すのはArca側のみ）。Realm詳細ではWingのname/icon/件数だけを見せる
+- Marker↔Wingは多対多（下記MarkerWing参照）。1つのMarkerが複数のWingに所属できる（「勉強ノートの『詳しくは第7章』」と同じ、参照であって複製ではない。Wingが増えてもMarker本文（`quoted_text`）は複製しない）
 
 ### Conversation（会話） ※import-specから継承・拡張
 ```
@@ -51,7 +58,6 @@ Conversation {
   source_conversation_id: string | null
   title: string
   project_id: uuid | null    // null = 未分類（Inbox）
-  theme_id: uuid | null      // null = プロジェクトには属すがテーマ未割当
   created_at: datetime | null   // 元サービス側の作成日時
   updated_at: datetime | null
   model: string | null
@@ -61,6 +67,8 @@ Conversation {
   held_at: datetime | null   // 非null = 保留中（一覧から除外）。実装確定：下記参照
 }
 ```
+
+**`theme_id`列の削除（決定・2026-07-11）**：旧Theme（会話が属するテーマ）を指していた列だったが、Pivot-3/4以降どのコードからも書き込まれなくなっていた（会話単位のテーマ割当UIは廃止済み）。`themes`テーブルの意味をWing（Marker/Realmの章立て）へ転換したため、意味が矛盾する古いFKとして削除した。
 
 **保留機能（実装確定・2026-07-11、実データ一括インポート後のフィードバックに基づく）**：数百〜千件規模の一括インポートを行うと、雑談のような無価値な会話が未分類一覧に大量に混ざり見通しが悪くなることが判明した。`held_at`に日時が入っている間は通常の一覧（Inbox/プロジェクト内/テーマ内）から除外され、「保留一覧」からのみアクセスできる。rejected同様に物理削除しないのが基本方針だが、保留一覧からは明示的な2段階操作（保留一覧を開く→「完全に削除」を選ぶ）でのみ物理削除も可能にした（雑談の一括整理という実用ニーズと、CLAUDE.md 2-1の「判断履歴を残す」思想のバランスを取った設計）。
 
@@ -131,6 +139,20 @@ MarkerTag {
 - `MarkerTag`：個々の発見物（Marker）単位への正確なTopic/Conceptタグ。1つの会話の中でトピックが混ざっていても、発見物ごとに正確なタグが付けられる（論点Aで「Themeの1:1固定を、タグで吸収する」と決めた話が、会話単位よりさらに正確に実現される）
 - 状態遷移の考え方（proposed→confirmed/rejected）はConversationTagと共通
 
+### MarkerWing（発見物とWingの中間テーブル、2026-07-11新設）
+```
+MarkerWing {
+  id: uuid
+  marker_id: uuid
+  wing_id: uuid              // themes.id（UI表示名はWing）
+  status: "proposed" | "confirmed" | "rejected"
+  proposed_by: "ai" | "human"
+  confirmed_at: datetime | null
+  created_at: datetime
+}
+```
+`marker_tags`と全く同じ状態機械（proposed→confirmed/rejected、CLAUDE.md 2-1）を踏襲する。1つのMarkerが複数のWingに`confirmed`で所属できる（`unique(marker_id, wing_id)`のみ制約、上限は無いがEdge Function `organize-wings`のプロンプトで1〜2個・多くとも3個程度に留めるよう指示している）。人間がArcaから手動で追加する場合は`proposed_by: human, status: confirmed`（提案フローを経ない、MarkerTagの手動追加と同じパターン）。
+
 ### Marker（マーカー／重要箇所）※知識の最小単位（2026-07-11の情報フロー転換により中心的存在に）
 ```
 Marker {
@@ -151,7 +173,7 @@ Marker {
 **情報フローの転換（決定・2026-07-11）**：AIによる「会話全体からのマーカー自動発見」は廃止した。マーカーは常に人間が横断検索→本文選択で手動作成する（`proposed_by: human`のみ。旧仕様の「AIがproposedで自動生成」は行わない）。詳細経緯：`VISION.md` 3-3、`C:\Users\user\.claude\plans\parsed-enchanting-dream.md`。
 **色の選択＝確定操作そのもの**：人間が5色（蛍光ピンク/グリーン/イエロー/ブルー/レッド）のいずれかを選ぶ行為が、そのままマーカーを`confirmed`にする操作を兼ねる（詳細はux-flow-and-screens.md）。**マーカーがconfirmedになった時点＝Arcaに追加された状態**であり、Realm（`project_id`）への割り当ては別の任意操作。
 
-**Wing（Theme相当）の実現方法（決定・2026-07-11）**：Wingは新テーブルを追加せず、**MarkerTagによる絞り込み表示として実現する**。あるRealm内のマーカーが持つタグそのものが「見た目上のWing」になる。`themes`テーブルは残すが、この用途では使わない（会話への割り当てというレガシーな使い方のみ残る）。
+**Wingへの割当（決定・2026-07-11、詳細は上記Theme節参照）**：MarkerとWingは`MarkerWing`（下記）を介した多対多。ArcaでのRealm割当直後にはWingは未設定で、Realm詳細の「Knowledge Organize」を実行して初めてAIがWingを提案する（空のRealmには提案しない。データが無い状態でAIが章立てを当てずっぽうで提案しても精度が低いため）。
 
 **範囲選択の実装方式（実装確定・2026-07-10、Step6技術スパイクの結論）**：ブラウザ標準のSelection/Range APIを使う。Web版は本文Textを`selectable`にして直接使用、ネイティブ版（iOS/Android）は同じロジックをWebView内JSとして動かしpostMessageで連携する設計（Web/ネイティブでロジックを共有できるのが採用理由。詳細はCLAUDE.md「実装前の必須スパイク」）。
 `quoted_text`から本文中の位置（開始/終了オフセット）を求める際は`message.content.indexOf(quoted_text)`による最初の一致を採用する（同一文字列が複数回出現する場合の区別はPhase1では行わない、既知の制約）。
@@ -211,11 +233,11 @@ AiJob {
 ## 2. リレーション図（テキスト表現）
 
 ```
-Project 1 ── N Theme
-Theme   1 ── N Conversation
+Project 1 ── N Theme  （UI表示名Wing。2026-07-11：ConversationではなくMarkerを束ねる用途に転換）
 Conversation 1 ── N Message
 Conversation N ── N Tag  (via ConversationTag、status付き。tag_type: topic/conceptのみ)
 Marker  N ── N Tag  (via MarkerTag、status付き。tag_type: topic/conceptのみ)
+Marker  N ── N Theme  (via MarkerWing、status付き。2026-07-11新設。Wing=人間向け章、Tag=AI内部用)
 Conversation 1 ── N Marker
 Project      1 ── N Marker  （2026-07-11追加。マーカーを直接Realmへ割り当てる）
 Marker  1 ── N MarkerHistory
@@ -263,7 +285,7 @@ Conversation 1 ── N Memo（target_type="conversation"の場合）
 
 ### user_idの持たせ方（実装確定：全テーブルに直接付与）
 
-**全テーブル（`Project` / `Theme` / `Conversation` / `Message` / `Tag` / `ConversationTag` / `MarkerTag` / `Marker` / `MarkerHistory` / `Memo` / `ImportBatch`）が`user_id`列を直接持ち、RLSは全テーブル共通の「own rows only」で判定する。**（`Summary`は2026-07-11のマーカー中心アーキテクチャへの転換に伴いテーブル自体を廃止した）
+**全テーブル（`Project` / `Theme` / `Conversation` / `Message` / `Tag` / `ConversationTag` / `MarkerTag` / `MarkerWing` / `Marker` / `MarkerHistory` / `Memo` / `ImportBatch`）が`user_id`列を直接持ち、RLSは全テーブル共通の「own rows only」で判定する。**（`Summary`は2026-07-11のマーカー中心アーキテクチャへの転換に伴いテーブル自体を廃止した）
 
 ```sql
 -- 全テーブル共通（実装済みマイグレーション準拠）

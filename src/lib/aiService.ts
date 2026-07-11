@@ -39,3 +39,39 @@ export async function organizeMarkers(markerIds: string[]): Promise<OrganizeMark
   }
   return data as OrganizeMarkersResult;
 }
+
+/**
+ * Edge Function `organize-wings` — Tag/Wingの役割分離（2026-07-11）の第2段階。
+ * organize-markersがTagを付けた「後」に、Realm単位でWing（人間向けの章）へまとめる。
+ * 詳細：C:\Users\user\.claude\plans\parsed-enchanting-dream.md「2026-07-11 Tag/Wingの役割分離」
+ *
+ * 【外部送信の明示】このRealmの、Tag済みでWing未割当のマーカーの引用テキスト・Roleタグ・
+ * 確定済みTag・所属会話タイトル・既存Wing名一覧がAnthropic Claude APIに送信される。
+ */
+export interface OrganizeWingsResult {
+  ok: boolean;
+  markers_processed?: number;
+  wings_proposed?: number;
+  new_wings_created?: number;
+  error?: string;
+}
+
+export async function organizeWings(projectId: string): Promise<OrganizeWingsResult> {
+  const { data, error } = await supabase.functions.invoke('organize-wings', {
+    body: { project_id: projectId },
+  });
+  if (error) {
+    let detail = error.message;
+    try {
+      const ctx = (error as { context?: Response }).context;
+      if (ctx) {
+        const body = await ctx.json();
+        if (body?.error) detail = body.error;
+      }
+    } catch {
+      // 本文が読めなければ元のメッセージのまま
+    }
+    return { ok: false, error: detail };
+  }
+  return data as OrganizeWingsResult;
+}

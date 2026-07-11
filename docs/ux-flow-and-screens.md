@@ -162,7 +162,7 @@ Step2（既存優先マッチング）：
 | S1 | インポート画面 | ファイルアップロード、形式自動判定 |
 | S2 | インポート完了サマリー | 成功/失敗件数、レビューへの導線 |
 | S3 | プロジェクト一覧（Realm一覧） | Project一覧（＋未分類Inbox） |
-| S4 | プロジェクト詳細（Realm詳細） | Wing（MarkerTagカテゴリ）別マーカー数の表示＋各Wingへのドリルダウン。旧Theme一覧UIは廃止 |
+| S4 | プロジェクト詳細（Realm詳細） | 本物のWing（`themes`＋`marker_wings`）のname/icon/件数一覧＋Wing詳細へのドリルダウン。RealmはTagを一切見せない |
 | S5 | 会話一覧（Inbox） | 横断検索で見つからない時のフォールバック閲覧。月別グルーピング＋保留/削除機能あり |
 
 > **実装メモ（2026-07-10）**：Step4実装時、S5の暫定版として`src/app/inbox.tsx`を先行実装した。
@@ -170,9 +170,11 @@ Step2（既存優先マッチング）：
 | S6 | 会話詳細（Chronicle） | 会話本文の表示＋マーカーの手動作成。旧・要約/AIタグ提案の確認画面という役割は廃止し、素の文脈ビューアに近い位置づけに変わった |
 | ~~S7~~ | ~~マーカーレビューモード~~ | **削除（2026-07-11）**。AIがマーカーを提案しなくなったため、レビュー対象自体が発生しなくなった |
 | S8 | 横断検索画面 | 全プロジェクト・全AI横断のキーワード/タグ検索。**Lumora最大の価値・知識発掘のコア体験（2026-07-11でホーム画面最優先に格上げ）** |
-| S9→**Arca** | マーカー集積地画面 | confirmed（Arca）マーカーの一覧・整理の主戦場。Realm/Wingフィルタ、未割当マーカーのRealm割り当て、未タグマーカーの一括AI整理（`organize-markers`起動）を担う |
+| S9→**Arca** | マーカー集積地画面（色フォルダ構造） | confirmed（Arca）マーカーを色フォルダ単位で表示（2026-07-11、DESIGN.md準拠に再設計）。フォルダ内でRealm/Tag絞り込み、未タグマーカーの整理（`organize-markers`起動）、Realm割当済みマーカーへの手動Wing追加を担う |
 
-> **実装メモ（2026-07-11）**：`src/app/search.tsx`（S8）・`src/app/highlights.tsx`（Arca、旧S9）として実装。Arcaは`projectId`/`wing`クエリパラメータでRealm詳細(S4)からの絞り込み遷移を受け付ける。Arca→S6への遷移は`markerId`クエリパラメータで該当マーカーへ自動スクロール＋一時ハイライトする。
+> **実装メモ（2026-07-11）**：`src/app/search.tsx`（S8）・`src/app/highlights.tsx`（Arca、旧S9）として実装。Arcaは`projectId`クエリパラメータでRealm詳細(S4)からの絞り込み遷移を受け付ける（旧`wing`パラメータはTag/Wing分離に伴い廃止。WingのドリルダウンはS4側で完結する）。Arca→S6への遷移は`markerId`クエリパラメータで該当マーカーへ自動スクロール＋一時ハイライトする。
+>
+> **Tag/Wingの役割分離（2026-07-11）**：Tagは検索・分類用の内部メタデータ（ユーザーは意識しなくてよい）、Wingは人間が読む章立て（本の目次）として役割を分離した。RealmはTagを見せずWingのみ表示する。Wingの提案は「Realmにマーカーが蓄積され、Realm詳細でKnowledge Organize（`organize-markers`→`organize-wings`の2段階）を実行した時」に行う。詳細：`data-model.md`「2026-07-11 Tag/Wingの役割分離」。
 
 ### 2-2. 画面遷移図（テキスト）
 
@@ -199,11 +201,12 @@ S6 会話詳細（Chronicle）
    ├─(＋タグを追加)→ 同画面内でConversationTag即時confirmed
    └─(戻る)→ S8 横断検索 or S5 会話一覧
 
-Arca（マーカー集積地、旧S9）
-   ├─(Realm/Wingフィルタ)→ 同画面内で絞り込み
+Arca（マーカー集積地、色フォルダ構造。旧S9）
+   ├─(色フォルダをタップ)→ 同画面内でその色のマーカー一覧へドリルダウン
+   ├─(Realm/Tagフィルタ)→ 同画面内で絞り込み
    ├─(マーカーをタップ)→ S6 会話詳細（該当箇所にジャンプ）
-   ├─(マーカーをRealmへ割り当て)→ 同画面内モーダル
-   └─(未タグマーカーをタグ整理)→ `organize-markers`実行→同画面内で即時更新
+   ├─(マーカーをRealmへ割り当て／Wingに追加)→ 同画面内モーダル
+   └─(未タグマーカーを整理)→ `organize-markers`実行→同画面内で即時更新
 
 S3 プロジェクト一覧（Realm一覧）
    ├─(プロジェクトをタップ)→ S4 プロジェクト詳細（Realm詳細）
@@ -211,7 +214,8 @@ S3 プロジェクト一覧（Realm一覧）
 
 S4 プロジェクト詳細（Realm詳細）
    ├─(すべてのマーカー)→ Arca（projectIdで絞り込み）
-   └─(Wingをタップ)→ Arca（projectId+wingで絞り込み）
+   ├─(Knowledge Organizeを実行)→ `organize-markers`→`organize-wings`の2段階を実行→同画面内で即時更新
+   └─(Wingをタップ)→ 同画面内でWing詳細へドリルダウン（マーカー一覧、proposed確認/却下、他のWing参照表示）
 
 S5 会話一覧（Inbox、フォールバック）
    └─(会話をタップ)→ S6 会話詳細

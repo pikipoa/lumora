@@ -214,11 +214,14 @@ export default function ConversationDetailScreen() {
       const existing = markers.find((m) => m.id === editingMarkerId);
       const quotedText = pendingSelection.text || existing?.quoted_text;
       if (!quotedText) return;
+      // 範囲・色・状態のいずれも変化していない場合は履歴を残さない（無駄な追記を避ける）
+      const unchanged =
+        existing && existing.quoted_text === quotedText && existing.color === color && existing.status === 'confirmed';
       await supabase
         .from('markers')
         .update({ quoted_text: quotedText, color, status: 'confirmed' })
         .eq('id', editingMarkerId);
-      await recordMarkerHistory(editingMarkerId, color, 'confirmed');
+      if (!unchanged) await recordMarkerHistory(editingMarkerId, color, 'confirmed');
     } else {
       const { data: created } = await supabase
         .from('markers')
@@ -242,8 +245,10 @@ export default function ConversationDetailScreen() {
   }
 
   async function rejectMarker(markerId: string) {
+    const existing = markers.find((m) => m.id === markerId);
+    const alreadyRejected = existing?.status === 'rejected';
     await supabase.from('markers').update({ status: 'rejected' }).eq('id', markerId);
-    await recordMarkerHistory(markerId, null, 'rejected');
+    if (!alreadyRejected) await recordMarkerHistory(markerId, null, 'rejected');
     clearNativeSelection();
     setPendingSelection(null);
     setEditingMarkerId(null);

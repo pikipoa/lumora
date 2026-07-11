@@ -7,7 +7,7 @@
  * 役割分担はdata-model.md「論点F」の通り）。両方指定時はAND（両方に一致する会話のみ）。
  */
 
-import { Redirect, useRouter } from 'expo-router';
+import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
@@ -41,8 +41,9 @@ interface TagOption {
 export default function SearchScreen() {
   const { session, loading } = useAuth();
   const router = useRouter();
+  const { q: initialQuery } = useLocalSearchParams<{ q?: string }>();
 
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery ?? '');
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
   const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
   const [results, setResults] = useState<ResultRow[] | null>(null);
@@ -106,6 +107,11 @@ export default function SearchScreen() {
   useEffect(() => {
     runSearch();
   }, [selectedTagId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (initialQuery) runSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!loading && !session) return <Redirect href="/login" />;
 

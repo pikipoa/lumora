@@ -11,7 +11,6 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
-import { loadUnreviewedCounts } from '@/lib/review';
 import { supabase } from '@/lib/supabase';
 
 const TAG_TYPE_LABEL: Record<string, string> = { topic: 'Topic', concept: 'Concept' };
@@ -21,7 +20,6 @@ interface ProjectRow {
   name: string;
   description: string | null;
   conversationCount: number;
-  unreviewedCount: number;
 }
 
 export default function ProjectsScreen() {
@@ -29,7 +27,6 @@ export default function ProjectsScreen() {
   const router = useRouter();
 
   const [projects, setProjects] = useState<ProjectRow[] | null>(null);
-  const [inboxUnreviewed, setInboxUnreviewed] = useState(0);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -38,10 +35,9 @@ export default function ProjectsScreen() {
   const [seedTagType, setSeedTagType] = useState<'topic' | 'concept'>('topic');
 
   const load = useCallback(async () => {
-    const [{ data: projectRows }, { data: conversations }, counts] = await Promise.all([
+    const [{ data: projectRows }, { data: conversations }] = await Promise.all([
       supabase.from('projects').select('id, name, description').order('created_at', { ascending: false }),
       supabase.from('conversations').select('id, project_id'),
-      loadUnreviewedCounts(),
     ]);
 
     const countByProject = new Map<string, number>();
@@ -54,10 +50,8 @@ export default function ProjectsScreen() {
       (projectRows ?? []).map((p) => ({
         ...p,
         conversationCount: countByProject.get(p.id) ?? 0,
-        unreviewedCount: counts.byProject[p.id] ?? 0,
       })),
     );
-    setInboxUnreviewed(counts.inbox);
   }, []);
 
   useEffect(() => {
@@ -112,11 +106,6 @@ export default function ProjectsScreen() {
 
         <Pressable style={styles.card} onPress={() => router.push('/inbox')} testID="open-inbox-card">
           <ThemedText type="smallBold">📂 未分類（Inbox）</ThemedText>
-          {inboxUnreviewed > 0 && (
-            <ThemedText type="small" themeColor="textSecondary">
-              {inboxUnreviewed}件レビュー待ち
-            </ThemedText>
-          )}
         </Pressable>
 
         {projects === null ? (
@@ -132,7 +121,6 @@ export default function ProjectsScreen() {
               <ThemedText type="smallBold">{p.name}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
                 会話{p.conversationCount}件
-                {p.unreviewedCount > 0 ? ` ・ ${p.unreviewedCount}件レビュー待ち` : ''}
               </ThemedText>
             </Pressable>
           ))

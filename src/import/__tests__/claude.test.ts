@@ -75,4 +75,81 @@ describe('parseClaude', () => {
     const result = parseClaude(JSON.stringify([item]));
     expect(result.conversations[0].title).toBe('Untitled');
   });
+
+  test('編集/再生成による分岐は、最新の葉から遡って採用された1本の経路のみ取り込む', () => {
+    // m1 → m2 → (m3 と m4 が同じ親m2を持つ分岐。m4の方が新しい＝採用枝)
+    const item = {
+      ...baseConversation,
+      chat_messages: [
+        { uuid: 'm1', sender: 'human', text: '質問', created_at: '2026-06-01T10:00:00Z', parent_message_uuid: null },
+        { uuid: 'm2', sender: 'assistant', text: '一次回答', created_at: '2026-06-01T10:01:00Z', parent_message_uuid: 'm1' },
+        { uuid: 'm3', sender: 'human', text: '却下された枝', created_at: '2026-06-01T10:02:00Z', parent_message_uuid: 'm2' },
+        { uuid: 'm4', sender: 'human', text: '採用された枝', created_at: '2026-06-01T10:03:00Z', parent_message_uuid: 'm2' },
+      ],
+    };
+    const result = parseClaude(JSON.stringify([item]));
+
+    const contents = result.conversations[0].messages.map((m) => m.content);
+    expect(contents).toEqual(['質問', '一次回答', '採用された枝']);
+    expect(result.warnings.some((w) => w.message.includes('分岐'))).toBe(true);
+  });
+
+  test('parent_message_uuidが無い（分岐なし）場合は従来通り配列順で取り込む', () => {
+    const result = parseClaude(JSON.stringify([baseConversation]));
+    expect(result.conversations[0].messages.map((m) => m.content)).toEqual([
+      '受付カウンターのUIをどうするか',
+      '世界観の入口として設計しましょう',
+    ]);
+  });
+
+  test('添付テキストファイルのextracted_contentを本文に統合する', () => {
+    const item = {
+      ...baseConversation,
+      chat_messages: [
+        {
+          uuid: 'm1',
+          sender: 'human',
+          text: '見てください',
+          created_at: '2026-06-01T10:00:00Z',
+          attachments: [{ file_name: 'spec.md', extracted_content: '仕様書の中身' }],
+        },
+      ],
+    };
+    const result = parseClaude(JSON.stringify([item]));
+    const msg = result.conversations[0].messages[0];
+    expect(msg.content).toContain('見てください');
+    expect(msg.content).toContain('spec.md');
+    expect(msg.content).toContain('仕様書の中身');
+    expect(msg.contentFormatLost).toBe(true);
+  });
+
+  test('Web検索citationsのURLと、ファイル名が取れるfilesをcitationsとして記録する', () => {
+    const item = {
+      ...baseConversation,
+      chat_messages: [
+        {
+          uuid: 'm1',
+          sender: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: '調べました',
+              citations: [{ details: { url: 'https://example.com/a' } }],
+            },
+          ],
+          files: [{ file_uuid: 'f1', file_name: 'photo.png' }, { file_uuid: 'f2', file_name: '' }],
+        },
+      ],
+    };
+    const result = parseClaude(JSON.stringify([item]));
+    expect(result.conversations[0].messages[0].citations).toEqual([
+      'https://example.com/a',
+      '添付ファイル: photo.png',
+    ]);
+  });
+
+  test('添付もfilesもcitationsも無ければcitationsはnullのまま', () => {
+    const result = parseClaude(JSON.stringify([baseConversation]));
+    expect(result.conversations[0].messages[0].citations).toBeNull();
+  });
 });

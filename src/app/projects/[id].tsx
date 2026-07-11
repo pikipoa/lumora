@@ -15,6 +15,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
+import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -175,6 +176,7 @@ export default function ProjectDetailScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         {selectedWingId === null ? (
           <>
+            <HomeLink />
             <Pressable onPress={() => router.back()} testID="back-button">
               <ThemedText type="link">← Realm</ThemedText>
             </Pressable>
@@ -289,6 +291,7 @@ export default function ProjectDetailScreen() {
           </>
         ) : (
           <>
+            <HomeLink />
             <Pressable onPress={() => setSelectedWingId(null)} testID="back-to-wings">
               <ThemedText type="link">← {projectName}</ThemedText>
             </Pressable>

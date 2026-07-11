@@ -28,6 +28,7 @@ import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 
+import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -235,6 +236,7 @@ export default function HighlightsScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         {colorFilter === null ? (
           <>
+            <HomeLink />
             <ThemedText type="subtitle">Arca</ThemedText>
 
             {rows === null ? (
@@ -276,6 +278,7 @@ export default function HighlightsScreen() {
           </>
         ) : (
           <>
+            <HomeLink />
             <Pressable onPress={backToFolders} testID="back-to-folders">
               <ThemedText type="link">← Arca</ThemedText>
             </Pressable>

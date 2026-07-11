@@ -7,6 +7,7 @@ import { Redirect, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 
+import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, MaxContentWidth } from '@/constants/theme';
@@ -54,6 +55,7 @@ export default function ImportScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
+        <HomeLink />
         <ThemedText type="subtitle">会話データのアップロード</ThemedText>
 
         <ThemedView type="backgroundElement" style={styles.helpBox}>

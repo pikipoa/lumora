@@ -22,6 +22,7 @@ import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, SectionList, StyleSheet } from 'react-native';
 
+import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -151,6 +152,7 @@ export default function InboxScreen() {
         )}
         ListHeaderComponent={
           <>
+            <HomeLink />
             <ThemedView style={styles.rowBetween}>
               <ThemedText type="smallBold">{showHeld ? `${headerLabel}（保留一覧）` : headerLabel}</ThemedText>
               {isInboxMode && (

@@ -12,7 +12,8 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AuthProvider>
         <Stack>
-          <Stack.Screen name="index" options={{ title: 'Lumora' }} />
+          {/* ホームはDESIGN.md準拠で余白を全面的に使うためヘッダー非表示（ワードマークは画面内に持つ） */}
+          <Stack.Screen name="index" options={{ title: 'Lumora', headerShown: false }} />
           <Stack.Screen name="login" options={{ title: 'ログイン' }} />
           <Stack.Screen name="import" options={{ title: 'インポート' }} />
           <Stack.Screen name="import-summary" options={{ title: 'インポート完了' }} />

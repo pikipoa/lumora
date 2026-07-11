@@ -1,18 +1,17 @@
 /**
- * 「知識世界が解放された」演出オーバーレイ。進化するホーム画面（2026-07-11）の一部。
- * 詳細経緯：C:\Users\user\.claude\plans\parsed-enchanting-dream.md
- * 「2026-07-11 進化するホーム画面（Progressive Unlock UI）」
+ * 「知識世界が解放された」演出オーバーレイ。docs/DESIGN.md準拠の静音版（2026-07-11再設計）。
  *
- * 1〜2枚のカードを配列で受け取り、「閉じる」で次のカード（複数ある場合）へ進む。
- * 全カードを閉じ終わるとonDoneを呼ぶ。絶対配置のオーバーレイとして実装し、
- * react-native-webのModal互換性に依存しない（このコードベースは他画面もModalを使っていない）。
+ * 設計判断（レビュー承認済み）：黒背景＋青ボタンのモーダルカードをやめ、
+ * テーマ色に沿った半透明の全面オーバーレイ＋タイポグラフィのみで構成する。
+ * フェードイン/アウトは状態変化（解放された）を伝えるためだけの最小のモーション
+ * （DESIGN.md「Motion Has Meaning」）。画面のどこをタップしても次へ進む。
+ * 1〜2枚のカードを配列で受け取り、全て見終わるとonDoneを呼ぶ。
  */
 
-import { useState } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Pressable, StyleSheet, useColorScheme } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import type { CelebrationCard } from '@/lib/unlocks';
 
@@ -23,6 +22,13 @@ interface Props {
 
 export function UnlockCelebration({ cards, onDone }: Props) {
   const [index, setIndex] = useState(0);
+  const opacity = useRef(new Animated.Value(0)).current;
+  const scheme = useColorScheme();
+
+  useEffect(() => {
+    Animated.timing(opacity, { toValue: 1, duration: 240, useNativeDriver: true }).start();
+  }, [opacity]);
+
   if (cards.length === 0) return null;
   const card = cards[index];
 
@@ -30,26 +36,28 @@ export function UnlockCelebration({ cards, onDone }: Props) {
     if (index + 1 < cards.length) {
       setIndex(index + 1);
     } else {
-      onDone();
+      Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => onDone());
     }
   }
 
+  const overlayColor = scheme === 'dark' ? 'rgba(0,0,0,0.92)' : 'rgba(255,255,255,0.94)';
+
   return (
-    <ThemedView style={styles.overlay} testID="unlock-celebration">
-      <ThemedView type="backgroundElement" style={styles.card}>
-        <ThemedText style={styles.badge}>New</ThemedText>
+    <Animated.View style={[styles.overlay, { opacity, backgroundColor: overlayColor }]} testID="unlock-celebration">
+      <Pressable style={styles.pressable} onPress={next} testID="unlock-celebration-dismiss">
+        <ThemedText themeColor="textSecondary" style={styles.badge}>
+          NEW
+        </ThemedText>
         <ThemedText style={styles.emoji}>{card.emoji}</ThemedText>
         <ThemedText type="subtitle">{card.title}</ThemedText>
-        <ThemedText type="small" style={styles.body}>
+        <ThemedText type="small" themeColor="textSecondary" style={styles.body}>
           {card.body}
         </ThemedText>
-        <Pressable style={styles.button} onPress={next} testID="unlock-celebration-dismiss">
-          <ThemedText style={styles.buttonText}>
-            {index + 1 < cards.length ? '次へ' : '閉じる'}
-          </ThemedText>
-        </Pressable>
-      </ThemedView>
-    </ThemedView>
+        <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
+          タップして{index + 1 < cards.length ? '次へ' : '閉じる'}
+        </ThemedText>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -60,29 +68,17 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    zIndex: 100,
+  },
+  pressable: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 100,
-    padding: Spacing.four,
-  },
-  card: {
-    borderRadius: Spacing.four,
+    gap: Spacing.three,
     padding: Spacing.five,
-    alignItems: 'center',
-    gap: Spacing.two,
-    maxWidth: 360,
-    width: '100%',
   },
-  badge: { opacity: 0.6, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase' },
-  emoji: { fontSize: 48, lineHeight: 56 },
-  body: { textAlign: 'center' },
-  button: {
-    marginTop: Spacing.three,
-    backgroundColor: '#208AEF',
-    borderRadius: Spacing.two,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.five,
-  },
-  buttonText: { color: '#fff', fontWeight: '600' },
+  badge: { fontSize: 11, fontWeight: '600', letterSpacing: 3 },
+  emoji: { fontSize: 40, lineHeight: 48 },
+  body: { textAlign: 'center', maxWidth: 320 },
+  hint: { marginTop: Spacing.five, opacity: 0.6 },
 });

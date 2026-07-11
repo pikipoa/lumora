@@ -64,7 +64,9 @@ function detectZip(file: ImportFile): DetectResult {
   //               Takeout/Gemini Apps/conversation_NNN.json 等（import-spec.md §3）
   const isTakeout = names.some((n) => /^Takeout\//i.test(n));
   if (isTakeout) {
-    const geminiJsons = names.filter((n) => /gemini[^/]*apps/i.test(n) && n.toLowerCase().endsWith('.json'));
+    // 実データ検証（2026-07-11）：日本語ロケールのTakeoutは"Gemini アプリ"（"apps"は付かない）
+    // というパス名になるため、"apps"の有無を前提にしない
+    const geminiJsons = names.filter((n) => /gemini/i.test(n) && n.toLowerCase().endsWith('.json'));
     if (geminiJsons.length > 0) {
       const warnings: string[] = [];
       const otherProducts = names.filter((n) => /^Takeout\//i.test(n) && !/gemini/i.test(n));

@@ -21,6 +21,8 @@ export default function RootLayout() {
           <Stack.Screen name="conversation/[id]/review" options={{ title: 'マーカーレビュー' }} />
           <Stack.Screen name="projects" options={{ title: 'プロジェクト' }} />
           <Stack.Screen name="projects/[id]" options={{ title: 'プロジェクト詳細' }} />
+          <Stack.Screen name="search" options={{ title: '横断検索' }} />
+          <Stack.Screen name="highlights" options={{ title: '重要部分だけ表示' }} />
         </Stack>
       </AuthProvider>
     </ThemeProvider>

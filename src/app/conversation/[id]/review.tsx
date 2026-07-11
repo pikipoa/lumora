@@ -244,7 +244,7 @@ export default function MarkerReviewScreen() {
           </ThemedText>
           <Pressable
             style={styles.smallButton}
-            onPress={() => router.push({ pathname: '/conversation/[id]/index', params: { id: id! } })}
+            onPress={() => router.push({ pathname: '/conversation/[id]', params: { id: id! } })}
             testID="back-to-conversation"
           >
             <ThemedText style={styles.smallButtonText}>会話詳細に戻る</ThemedText>

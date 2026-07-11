@@ -40,6 +40,14 @@ export default function HomeScreen() {
             <ThemedText type="smallBold">🗂️ プロジェクト一覧</ThemedText>
             <ThemedText type="small">Realm・テーマの整理とレビュー</ThemedText>
           </Pressable>
+          <Pressable style={styles.menuItem} onPress={() => router.push('/search')}>
+            <ThemedText type="smallBold">🔍 横断検索</ThemedText>
+            <ThemedText type="small">全プロジェクト・全AI横断のキーワード/タグ検索</ThemedText>
+          </Pressable>
+          <Pressable style={styles.menuItem} onPress={() => router.push('/highlights')}>
+            <ThemedText type="smallBold">✨ 重要部分だけ表示</ThemedText>
+            <ThemedText type="small">確定済み（Arca）マーカーの一覧</ThemedText>
+          </Pressable>
         </ThemedView>
 
         <Pressable onPress={() => supabase.auth.signOut()}>

@@ -90,8 +90,9 @@ interface MemoRow {
 }
 
 export default function ConversationDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, markerId: jumpToMarkerId } = useLocalSearchParams<{ id: string; markerId?: string }>();
   const router = useRouter();
+  const [jumpedMarkerId, setJumpedMarkerId] = useState<string | null>(null);
 
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
   const [messages, setMessages] = useState<MessageRow[]>([]);
@@ -147,6 +148,17 @@ export default function ConversationDetailScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // S9「重要部分だけ表示」からの遷移：該当マーカーへスクロールし、一時的にハイライトする
+  useEffect(() => {
+    if (!jumpToMarkerId || loading || Platform.OS !== 'web') return;
+    const el = document.querySelector(`[data-testid="marker-segment-${jumpToMarkerId}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setJumpedMarkerId(jumpToMarkerId);
+    const timer = setTimeout(() => setJumpedMarkerId(null), 2500);
+    return () => clearTimeout(timer);
+  }, [jumpToMarkerId, loading]);
 
   // Step6スパイクの結論：ブラウザ標準Selection APIで範囲を読み取る。
   // ドラッグ中はDOMを再構成しない（既存マーカーのレイヤーのみで分割し、選択中の範囲は
@@ -565,6 +577,7 @@ export default function ConversationDetailScreen() {
                             { backgroundColor: bg },
                             isProposed && styles.markerProposed,
                             seg.layer.id === editingMarkerId && styles.markerSelected,
+                            seg.layer.id === jumpedMarkerId && styles.markerSelected,
                           ]}
                           testID={`marker-segment-${seg.layer.id}`}
                         >

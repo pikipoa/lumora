@@ -14,6 +14,7 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { analyzeConversation } from '@/lib/aiService';
 import { useAuth } from '@/lib/auth-context';
+import { notifyReviewPending } from '@/lib/notifications';
 import { supabase } from '@/lib/supabase';
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -102,13 +103,13 @@ export default function InboxScreen() {
     setRowStates((s) => ({ ...s, [conversationId]: { kind: 'running' } }));
     const result = await analyzeConversation(conversationId);
     if (result.ok) {
+      const note = `要約1件・タグ${result.conversation_tags ?? 0}件・マーカー${result.markers ?? 0}件を提案（Ore）`;
       setRowStates((s) => ({
         ...s,
-        [conversationId]: {
-          kind: 'done',
-          note: `要約1件・タグ${result.conversation_tags ?? 0}件・マーカー${result.markers ?? 0}件を提案（Ore）`,
-        },
+        [conversationId]: { kind: 'done', note },
       }));
+      const hasProposals = (result.conversation_tags ?? 0) > 0 || (result.markers ?? 0) > 0;
+      if (hasProposals) notifyReviewPending(note);
     } else {
       setRowStates((s) => ({
         ...s,

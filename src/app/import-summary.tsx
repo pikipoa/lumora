@@ -6,6 +6,7 @@
 import { Redirect, useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet } from 'react-native';
 
+import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -29,6 +30,7 @@ export default function ImportSummaryScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
+        <HomeLink />
         <ThemedView type="backgroundElement" style={styles.badge}>
           <ThemedText type="small">出典: {SOURCE_LABEL[summary.source] ?? summary.source}</ThemedText>
         </ThemedView>

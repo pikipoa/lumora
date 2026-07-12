@@ -48,6 +48,8 @@ interface ConversationDetail {
   id: string;
   title: string;
   source: string;
+  created_at: string | null;
+  imported_at: string;
   project_id: string | null;
   projects: { name: string } | null;
 }
@@ -112,7 +114,7 @@ export default function ConversationDetailScreen() {
       await Promise.all([
         supabase
           .from('conversations')
-          .select('id, title, source, project_id, projects(name)')
+          .select('id, title, source, created_at, imported_at, project_id, projects(name)')
           .eq('id', id)
           .single(),
         supabase.from('messages').select('id, role, content, seq').eq('conversation_id', id).order('seq'),
@@ -354,15 +356,16 @@ export default function ConversationDetailScreen() {
           <ThemedText type="link">← 戻る</ThemedText>
         </Pressable>
 
-        <ThemedView type="backgroundElement" style={styles.badge}>
-          <ThemedText type="small">{SOURCE_LABEL[conversation.source] ?? conversation.source}</ThemedText>
-        </ThemedView>
-
+        {/* 会話タイトル（＝最初のユーザー発言のことが多い）を大見出しにしない（2026-07-12）。
+            日付・AI元・Realmと同列の小さなメタ情報として1行に収める */}
         <ThemedText type="small" themeColor="textSecondary">
-          {conversation.projects?.name ?? '未分類（Inbox）'}
+          {new Date(conversation.created_at ?? conversation.imported_at).toLocaleDateString('ja-JP')} ・{' '}
+          {SOURCE_LABEL[conversation.source] ?? conversation.source} ・{' '}
+          {conversation.projects?.name ?? '未分類'}
         </ThemedText>
-
-        <ThemedText type="subtitle">{conversation.title}</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+          {conversation.title}
+        </ThemedText>
 
         {/* 本文（マーカーハイライト＋範囲選択） */}
         <ThemedView type="backgroundElement" style={styles.section}>
@@ -551,7 +554,6 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   note: { opacity: 0.7, padding: Spacing.four },
-  badge: { alignSelf: 'flex-start', borderRadius: Spacing.two, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one },
   section: { borderRadius: Spacing.two, padding: Spacing.three, gap: Spacing.two },
   row: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
   messageText: { fontSize: 16, lineHeight: 24 },

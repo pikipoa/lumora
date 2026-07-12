@@ -11,9 +11,11 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AuthProvider>
-        <Stack>
-          {/* ホームはDESIGN.md準拠で余白を全面的に使うためヘッダー非表示（ワードマークは画面内に持つ） */}
-          <Stack.Screen name="index" options={{ title: 'Lumora', headerShown: false }} />
+        {/* ネイティブヘッダーは全画面で非表示（2026-07-12）：画面内のタイトルとヘッダーバーで
+            同じ語が二重に表示される問題への対応。titleはブラウザタブ名としてのみ使われる。
+            ナビゲーションは各画面のHomeLink＋「←」リンクが担う */}
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" options={{ title: 'Lumora' }} />
           <Stack.Screen name="login" options={{ title: 'ログイン' }} />
           <Stack.Screen name="import" options={{ title: 'インポート' }} />
           <Stack.Screen name="import-summary" options={{ title: 'インポート完了' }} />
@@ -21,7 +23,7 @@ export default function RootLayout() {
           <Stack.Screen name="conversation/[id]/index" options={{ title: '会話詳細' }} />
           <Stack.Screen name="projects" options={{ title: 'Realm' }} />
           <Stack.Screen name="projects/[id]" options={{ title: 'Realm' }} />
-          <Stack.Screen name="search" options={{ title: '横断検索' }} />
+          <Stack.Screen name="search" options={{ title: 'Search' }} />
           <Stack.Screen name="chronicles" options={{ title: 'Chronicle' }} />
         </Stack>
       </AuthProvider>

@@ -9,13 +9,14 @@ import { useRouter } from 'expo-router';
 import { Pressable } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { t } from '@/i18n';
 
 export function HomeLink() {
   const router = useRouter();
   return (
     <Pressable onPress={() => router.push('/')} testID="home-link">
       <ThemedText type="small" themeColor="textSecondary">
-        Lumora
+        {t.brand.appName}
       </ThemedText>
     </Pressable>
   );

@@ -26,6 +26,7 @@ import { ThemedView } from '@/components/themed-view';
 import { UnlockCelebration } from '@/components/unlock-celebration';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { t } from '@/i18n';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import {
@@ -93,10 +94,10 @@ export default function HomeScreen() {
 
   const stats: { label: string; value: number; href: '/chronicles' | '/projects'; testID: string }[] = [];
   if (counts && seenFlags.arcaChronicle) {
-    stats.push({ label: 'Chronicle', value: counts.chronicleCount, href: '/chronicles', testID: 'chronicle-card' });
+    stats.push({ label: t.brand.chronicle, value: counts.chronicleCount, href: '/chronicles', testID: 'chronicle-card' });
   }
   if (counts && seenFlags.realm) {
-    stats.push({ label: 'Realm', value: counts.realmCount, href: '/projects', testID: 'realm-card' });
+    stats.push({ label: t.brand.realm, value: counts.realmCount, href: '/projects', testID: 'realm-card' });
   }
 
   return (
@@ -110,15 +111,15 @@ export default function HomeScreen() {
           <View style={styles.center}>
             <Pressable onLongPress={() => supabase.auth.signOut()}>
               <ThemedText themeColor="textSecondary" style={styles.wordmark}>
-                Lumora
+                {t.brand.appName}
               </ThemedText>
             </Pressable>
             <ThemedText type="subtitle" style={styles.heroCopy}>
-              AIとの会話を、知識に。
+              {t.home.coldStartCopy}
             </ThemedText>
             <Pressable onPress={() => router.push('/import')} testID="import-cta">
               <ThemedText type="linkPrimary" style={styles.coldStartLink}>
-                会話をインポート →
+                {t.home.coldStartCta}
               </ThemedText>
             </Pressable>
           </View>
@@ -130,7 +131,7 @@ export default function HomeScreen() {
               {/* ログアウトはワードマーク長押し（常時表示のログアウトはDESIGN.mdにより撤去） */}
               <Pressable onLongPress={() => supabase.auth.signOut()}>
                 <ThemedText themeColor="textSecondary" style={styles.wordmark}>
-                  Lumora
+                  {t.brand.appName}
                 </ThemedText>
               </Pressable>
 
@@ -141,7 +142,7 @@ export default function HomeScreen() {
                   // 下線が既にフィールドを示しているため、Webのフォーカスリングは出さない（DESIGN.md「少ない線」）
                   Platform.OS === 'web' && ({ outlineStyle: 'none' } as object),
                 ]}
-                placeholder="知識を探す"
+                placeholder={t.home.searchPlaceholder}
                 placeholderTextColor={theme.textSecondary}
                 value={query}
                 onChangeText={setQuery}
@@ -170,15 +171,15 @@ export default function HomeScreen() {
             <View style={styles.footer}>
               <Pressable onPress={() => router.push('/import')} testID="import-link">
                 <ThemedText type="small" themeColor="textSecondary">
-                  インポート
+                  {t.home.importLink}
                 </ThemedText>
               </Pressable>
               <ThemedText type="small" themeColor="textSecondary">
-                ・
+                {t.home.separator}
               </ThemedText>
               <Pressable onPress={() => router.push('/inbox')} testID="inbox-link">
                 <ThemedText type="small" themeColor="textSecondary">
-                  Inbox
+                  {t.home.inboxLink}
                 </ThemedText>
               </Pressable>
             </View>

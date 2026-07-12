@@ -13,6 +13,7 @@ import { Animated, Pressable, StyleSheet, useColorScheme } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
+import { t } from '@/i18n';
 import type { CelebrationCard } from '@/lib/unlocks';
 
 interface Props {
@@ -46,7 +47,7 @@ export function UnlockCelebration({ cards, onDone }: Props) {
     <Animated.View style={[styles.overlay, { opacity, backgroundColor: overlayColor }]} testID="unlock-celebration">
       <Pressable style={styles.pressable} onPress={next} testID="unlock-celebration-dismiss">
         <ThemedText themeColor="textSecondary" style={styles.badge}>
-          NEW
+          {t.celebrations.newLabel}
         </ThemedText>
         <ThemedText style={styles.emoji}>{card.emoji}</ThemedText>
         <ThemedText type="subtitle">{card.title}</ThemedText>
@@ -54,7 +55,7 @@ export function UnlockCelebration({ cards, onDone }: Props) {
           {card.body}
         </ThemedText>
         <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
-          タップして{index + 1 < cards.length ? '次へ' : '閉じる'}
+          {index + 1 < cards.length ? t.celebrations.tapNext : t.celebrations.tapClose}
         </ThemedText>
       </Pressable>
     </Animated.View>

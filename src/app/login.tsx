@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
+import { t } from '@/i18n';
 import { supabase } from '@/lib/supabase';
 
 export default function LoginScreen() {
@@ -29,7 +30,7 @@ export default function LoginScreen() {
     });
     setBusy(false);
     if (authError) {
-      setError(`ログインに失敗しました: ${authError.message}`);
+      setError(t.login.failed(authError.message));
       return;
     }
     router.replace('/');
@@ -38,17 +39,15 @@ export default function LoginScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ThemedText type="title">Lumora</ThemedText>
-        <ThemedText type="small">
-          Supabaseダッシュボード（Authentication → Users）で作成したアカウントでログインします
-        </ThemedText>
+        <ThemedText type="title">{t.brand.appName}</ThemedText>
+        <ThemedText type="small">{t.login.help}</ThemedText>
         <ThemedText type="small" style={styles.connInfo}>
-          接続先: {process.env.EXPO_PUBLIC_SUPABASE_URL ?? '(未設定)'}
+          {t.login.connectedTo(process.env.EXPO_PUBLIC_SUPABASE_URL ?? t.login.urlUnset)}
         </ThemedText>
 
         <TextInput
           style={styles.input}
-          placeholder="メールアドレス"
+          placeholder={t.login.emailPlaceholder}
           autoCapitalize="none"
           autoComplete="email"
           keyboardType="email-address"
@@ -58,7 +57,7 @@ export default function LoginScreen() {
         />
         <TextInput
           style={styles.input}
-          placeholder="パスワード"
+          placeholder={t.login.passwordPlaceholder}
           secureTextEntry
           value={password}
           onChangeText={setPassword}
@@ -72,7 +71,7 @@ export default function LoginScreen() {
           {busy ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <ThemedText style={styles.buttonText}>ログイン</ThemedText>
+            <ThemedText style={styles.buttonText}>{t.login.loginButton}</ThemedText>
           )}
         </Pressable>
       </SafeAreaView>

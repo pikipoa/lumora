@@ -23,11 +23,15 @@ import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { t } from '@/i18n';
 import { organizeMarkers, organizeWings } from '@/lib/aiService';
 import { supabase } from '@/lib/supabase';
 
 const ICON_PRESETS = ['⚔️', '🎨', '🏗️', '📖', '📣', '🗄️', '💡', '🔬', '💰', '🌱'];
-const TAG_TYPE_LABEL: Record<string, string> = { topic: 'Topic', concept: 'Concept' };
+const TAG_TYPE_LABEL: Record<string, string> = {
+  topic: t.realmDetail.tagTypeTopic,
+  concept: t.realmDetail.tagTypeConcept,
+};
 
 interface WingOption {
   id: string;
@@ -177,10 +181,10 @@ export default function ProjectDetailScreen() {
     const result = await organizeWings(id);
     setOrganizing(false);
     if (result.ok) {
-      setOrganizeNote(`Wing候補を${result.wings_proposed ?? 0}件提案しました`);
+      setOrganizeNote(t.realmDetail.organizeDone(result.wings_proposed ?? 0));
       load();
     } else {
-      setOrganizeNote(`エラー: ${result.error ?? '不明なエラー'}`);
+      setOrganizeNote(t.common.error(result.error ?? t.common.unknownError));
     }
   }
 
@@ -298,7 +302,7 @@ export default function ProjectDetailScreen() {
     const tags = m.marker_tags.filter((mt) => mt.status !== 'rejected');
     return (
       <ThemedView style={styles.aiPanel} testID={`ai-panel-${m.id}`}>
-        <ThemedText type="smallBold">Wing</ThemedText>
+        <ThemedText type="smallBold">{t.realmDetail.aiPanelWing}</ThemedText>
         <ThemedView style={styles.tagWrap}>
           {confirmedWings.map((mw) => (
             <ThemedText key={mw.id} type="small">
@@ -321,12 +325,12 @@ export default function ProjectDetailScreen() {
           ))}
           {confirmedWings.length === 0 && proposedWings.length === 0 && (
             <ThemedText type="small" themeColor="textSecondary">
-              まだWingがありません
+              {t.realmDetail.noWingsYet}
             </ThemedText>
           )}
         </ThemedView>
 
-        <ThemedText type="smallBold">AI Tags</ThemedText>
+        <ThemedText type="smallBold">{t.realmDetail.aiPanelTags}</ThemedText>
         <ThemedView style={styles.tagWrap}>
           {tags.map((mt) => (
             <ThemedView key={mt.id} style={[styles.tagChip, mt.status === 'proposed' && styles.tagChipProposed]}>
@@ -356,7 +360,7 @@ export default function ProjectDetailScreen() {
           ))}
           {tags.length === 0 && (
             <ThemedText type="small" themeColor="textSecondary">
-              まだタグがありません
+              {t.realmDetail.noTagsYet}
             </ThemedText>
           )}
         </ThemedView>
@@ -364,7 +368,7 @@ export default function ProjectDetailScreen() {
         <ThemedView style={styles.row}>
           <TextInput
             style={styles.input}
-            placeholder={renameFromId ? '新しい名前' : '＋タグを追加'}
+            placeholder={renameFromId ? t.realmDetail.tagRenamePlaceholder : t.realmDetail.tagAddPlaceholder}
             value={newTagName}
             onChangeText={setNewTagName}
             onSubmitEditing={() => addTagToMarker(m.id)}
@@ -377,7 +381,7 @@ export default function ProjectDetailScreen() {
             <ThemedText type="small">{TAG_TYPE_LABEL[newTagType]}</ThemedText>
           </Pressable>
           <Pressable style={styles.chip} onPress={() => addTagToMarker(m.id)} testID="ai-panel-tag-add">
-            <ThemedText type="small">{renameFromId ? 'リネーム' : '追加'}</ThemedText>
+            <ThemedText type="small">{renameFromId ? t.realmDetail.tagRename : t.common.add}</ThemedText>
           </Pressable>
           {renameFromId && (
             <Pressable
@@ -387,7 +391,7 @@ export default function ProjectDetailScreen() {
               }}
             >
               <ThemedText type="small" themeColor="textSecondary">
-                キャンセル
+                {t.common.cancel}
               </ThemedText>
             </Pressable>
           )}
@@ -403,7 +407,7 @@ export default function ProjectDetailScreen() {
           <>
             <HomeLink />
             <Pressable onPress={() => router.back()} testID="back-button">
-              <ThemedText type="link">← Realm</ThemedText>
+              <ThemedText type="link">{t.realmDetail.backToList}</ThemedText>
             </Pressable>
 
             <ThemedText type="subtitle">{projectName ?? ''}</ThemedText>
@@ -411,18 +415,22 @@ export default function ProjectDetailScreen() {
             <ThemedView style={styles.row}>
               <ThemedText style={styles.count}>{markers.length}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                マーカー
+                {t.realmDetail.markersLabel}
               </ThemedText>
             </ThemedView>
 
             {organizableCount > 0 && (
               <ThemedView style={styles.row}>
-                <ThemedText type="smallBold">Knowledge Organize</ThemedText>
+                <ThemedText type="smallBold">{t.realmDetail.organizeTitle}</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  AIが知識を整理しています
+                  {t.realmDetail.organizeSubtitle}
                 </ThemedText>
                 <Pressable onPress={runKnowledgeOrganize} disabled={organizing} testID="knowledge-organize-button">
-                  {organizing ? <ActivityIndicator size="small" /> : <ThemedText type="linkPrimary">実行する</ThemedText>}
+                  {organizing ? (
+                    <ActivityIndicator size="small" />
+                  ) : (
+                    <ThemedText type="linkPrimary">{t.common.run}</ThemedText>
+                  )}
                 </Pressable>
                 {organizeNote && (
                   <ThemedText type="small" themeColor="textSecondary">
@@ -436,7 +444,7 @@ export default function ProjectDetailScreen() {
             {pendingMarkers.length > 0 && (
               <ThemedView style={styles.pendingList}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Wing候補の確認 {pendingMarkers.length}
+                  {t.realmDetail.candidatesHeading(pendingMarkers.length)}
                 </ThemedText>
                 {pendingMarkers.map((m) => {
                   const candidates = m.marker_wings
@@ -464,7 +472,7 @@ export default function ProjectDetailScreen() {
                           testID={`wing-candidate-other-${m.id}`}
                         >
                           <ThemedText type="small" themeColor="textSecondary">
-                            別のWingへ…
+                            {t.realmDetail.otherWing}
                           </ThemedText>
                         </Pressable>
                       </ThemedView>
@@ -517,7 +525,7 @@ export default function ProjectDetailScreen() {
             {unorganizedMarkers.length > 0 && (
               <ThemedView style={styles.pendingList}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  未整理 {unorganizedMarkers.length}
+                  {t.realmDetail.unorganizedHeading(unorganizedMarkers.length)}
                 </ThemedText>
                 {unorganizedMarkers.map((m) => (
                   <ThemedView key={m.id} style={styles.pendingRow}>
@@ -539,7 +547,7 @@ export default function ProjectDetailScreen() {
                           testID={`unorganized-wing-picker-toggle-${m.id}`}
                         >
                           <ThemedText type="small" themeColor="textSecondary">
-                            Wingへ…
+                            {t.realmDetail.toWing}
                           </ThemedText>
                         </Pressable>
                         {wingPickerMarkerId === m.id && (
@@ -567,13 +575,13 @@ export default function ProjectDetailScreen() {
 
             {!creatingWing ? (
               <Pressable onPress={() => setCreatingWing(true)} testID="new-wing-button">
-                <ThemedText type="linkPrimary">＋ 新しいWing</ThemedText>
+                <ThemedText type="linkPrimary">{t.realmDetail.newWing}</ThemedText>
               </Pressable>
             ) : (
               <ThemedView style={styles.newWingForm}>
                 <TextInput
                   style={styles.input}
-                  placeholder="Wing名"
+                  placeholder={t.realmDetail.wingNamePlaceholder}
                   value={newWingName}
                   onChangeText={setNewWingName}
                   onSubmitEditing={createWing}
@@ -593,11 +601,11 @@ export default function ProjectDetailScreen() {
                 </ThemedView>
                 <ThemedView style={styles.row}>
                   <Pressable onPress={createWing} testID="create-wing-button">
-                    <ThemedText type="linkPrimary">作成</ThemedText>
+                    <ThemedText type="linkPrimary">{t.common.create}</ThemedText>
                   </Pressable>
                   <Pressable onPress={() => setCreatingWing(false)}>
                     <ThemedText type="small" themeColor="textSecondary">
-                      キャンセル
+                      {t.common.cancel}
                     </ThemedText>
                   </Pressable>
                 </ThemedView>
@@ -606,7 +614,7 @@ export default function ProjectDetailScreen() {
 
             {markers.length === 0 && (
               <ThemedText type="small" themeColor="textSecondary">
-                まだこのRealmにマーカーがありません。横断検索から会話を見つけて本文を選択し、マーカーを作成してからここに収納してください。
+                {t.realmDetail.emptyRealm}
               </ThemedText>
             )}
           </>
@@ -623,7 +631,7 @@ export default function ProjectDetailScreen() {
 
             {wingMarkers.length === 0 ? (
               <ThemedText type="small" themeColor="textSecondary">
-                このWingにはまだマーカーがありません。
+                {t.realmDetail.emptyWing}
               </ThemedText>
             ) : (
               wingMarkers.map(({ marker, mine, others }) => (
@@ -643,16 +651,16 @@ export default function ProjectDetailScreen() {
                       />
                       <ThemedView style={styles.row}>
                         <Pressable onPress={() => saveEditedText(marker)} testID={`edit-text-save-${marker.id}`}>
-                          <ThemedText type="linkPrimary">保存</ThemedText>
+                          <ThemedText type="linkPrimary">{t.common.save}</ThemedText>
                         </Pressable>
                         <Pressable onPress={() => setEditingTextId(null)}>
                           <ThemedText type="small" themeColor="textSecondary">
-                            キャンセル
+                            {t.common.cancel}
                           </ThemedText>
                         </Pressable>
                         {marker.edited_text && (
                           <ThemedText type="small" themeColor="textSecondary">
-                            （空にして保存すると原文に戻ります）
+                            {t.realmDetail.editRevertHint}
                           </ThemedText>
                         )}
                       </ThemedView>
@@ -662,7 +670,7 @@ export default function ProjectDetailScreen() {
                       <ThemedText>{displayText(marker)}</ThemedText>
                       {marker.edited_text && (
                         <ThemedText type="small" themeColor="textSecondary">
-                          編集済み
+                          {t.realmDetail.edited}
                         </ThemedText>
                       )}
                     </Pressable>
@@ -670,7 +678,9 @@ export default function ProjectDetailScreen() {
 
                   {others.length > 0 && (
                     <ThemedText type="small" themeColor="textSecondary">
-                      他のWing: {others.map((o) => `${o.themes?.icon ?? '📖'} ${o.themes?.name}`).join('、')}
+                      {t.realmDetail.otherWings(
+                        others.map((o) => `${o.themes?.icon ?? '📖'} ${o.themes?.name}`).join('、'),
+                      )}
                     </ThemedText>
                   )}
 
@@ -685,7 +695,7 @@ export default function ProjectDetailScreen() {
                       testID={`view-source-${marker.id}`}
                     >
                       <ThemedText type="small" themeColor="textSecondary">
-                        原文を見る
+                        {t.realmDetail.viewSource}
                       </ThemedText>
                     </Pressable>
                     <Pressable
@@ -693,13 +703,13 @@ export default function ProjectDetailScreen() {
                       testID={`ai-panel-toggle-${marker.id}`}
                     >
                       <ThemedText type="small" themeColor="textSecondary">
-                        {aiPanelMarkerId === marker.id ? 'AI分析結果を閉じる' : 'AI分析結果を見る'}
+                        {aiPanelMarkerId === marker.id ? t.realmDetail.aiPanelClose : t.realmDetail.aiPanelOpen}
                       </ThemedText>
                     </Pressable>
                     {mine && (
                       <Pressable onPress={() => setWingStatus(mine.id, 'rejected')} testID={`wing-marker-remove-${mine.id}`}>
                         <ThemedText type="small" themeColor="textSecondary">
-                          ✕ このWingから外す
+                          {t.realmDetail.removeFromWing}
                         </ThemedText>
                       </Pressable>
                     )}

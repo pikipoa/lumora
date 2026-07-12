@@ -11,10 +11,14 @@ import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 
-const TAG_TYPE_LABEL: Record<string, string> = { topic: 'Topic', concept: 'Concept' };
+const TAG_TYPE_LABEL: Record<string, string> = {
+  topic: t.realmDetail.tagTypeTopic,
+  concept: t.realmDetail.tagTypeConcept,
+};
 
 interface ProjectRow {
   id: string;
@@ -104,7 +108,7 @@ export default function ProjectsScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <HomeLink />
-        <ThemedText type="subtitle">Realm</ThemedText>
+        <ThemedText type="subtitle">{t.realms.title}</ThemedText>
 
         {projects === null ? (
           <ActivityIndicator style={{ marginTop: Spacing.five }} />
@@ -118,7 +122,7 @@ export default function ProjectsScreen() {
             >
               <ThemedText type="smallBold">{p.name}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                会話{p.conversationCount}件
+                {t.realms.conversationCount(p.conversationCount)}
               </ThemedText>
             </Pressable>
           ))
@@ -126,27 +130,27 @@ export default function ProjectsScreen() {
 
         {!creating ? (
           <Pressable style={styles.newButton} onPress={() => setCreating(true)} testID="new-project-button">
-            <ThemedText style={styles.newButtonText}>＋ 新しいRealm</ThemedText>
+            <ThemedText style={styles.newButtonText}>{t.realms.newRealm}</ThemedText>
           </Pressable>
         ) : (
           <ThemedView type="backgroundElement" style={styles.form}>
-            <ThemedText type="smallBold">新しいRealm</ThemedText>
+            <ThemedText type="smallBold">{t.realms.newRealmFormTitle}</ThemedText>
             <TextInput
               style={styles.input}
-              placeholder="Realm名"
+              placeholder={t.realms.namePlaceholder}
               value={name}
               onChangeText={setName}
               testID="project-name-input"
             />
             <TextInput
               style={styles.input}
-              placeholder="説明（任意）"
+              placeholder={t.realms.descriptionPlaceholder}
               value={description}
               onChangeText={setDescription}
               testID="project-description-input"
             />
 
-            <ThemedText type="small">種タグ（任意・後からいつでも追加できます）</ThemedText>
+            <ThemedText type="small">{t.realms.seedTagsLabel}</ThemedText>
             <ThemedView style={styles.tagWrap}>
               {seedTags.map((t, i) => (
                 <ThemedView key={i} style={styles.chip}>
@@ -159,7 +163,7 @@ export default function ProjectsScreen() {
             <ThemedView style={styles.row}>
               <TextInput
                 style={[styles.input, { flex: 1 }]}
-                placeholder="タグ名"
+                placeholder={t.realms.seedTagPlaceholder}
                 value={seedTagInput}
                 onChangeText={setSeedTagInput}
                 onSubmitEditing={addSeedTag}
@@ -172,16 +176,16 @@ export default function ProjectsScreen() {
                 <ThemedText type="small">{TAG_TYPE_LABEL[seedTagType]}</ThemedText>
               </Pressable>
               <Pressable style={styles.smallButtonOutline} onPress={addSeedTag} testID="add-seed-tag-button">
-                <ThemedText type="small">追加</ThemedText>
+                <ThemedText type="small">{t.common.add}</ThemedText>
               </Pressable>
             </ThemedView>
 
             <ThemedView style={styles.row}>
               <Pressable style={styles.newButton} onPress={createProject} testID="create-project-button">
-                <ThemedText style={styles.newButtonText}>作成</ThemedText>
+                <ThemedText style={styles.newButtonText}>{t.common.create}</ThemedText>
               </Pressable>
               <Pressable style={styles.smallButtonOutline} onPress={() => setCreating(false)}>
-                <ThemedText type="small">キャンセル</ThemedText>
+                <ThemedText type="small">{t.common.cancel}</ThemedText>
               </Pressable>
             </ThemedView>
           </ThemedView>

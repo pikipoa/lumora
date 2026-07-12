@@ -18,15 +18,9 @@ import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
-
-const SOURCE_LABEL: Record<string, string> = {
-  chatgpt: 'ChatGPT',
-  gemini: 'Gemini',
-  claude: 'Claude',
-  perplexity: 'Perplexity',
-};
 
 interface MarkerRow {
   conversation_id: string;
@@ -131,13 +125,13 @@ export default function ChroniclesScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <HomeLink />
-        <ThemedText type="subtitle">Chronicle</ThemedText>
+        <ThemedText type="subtitle">{t.chronicle.title}</ThemedText>
 
         {/* Realm未割当マーカーの一時セクション。0件になると消える（v2.1） */}
         {unassigned.length > 0 && (
           <ThemedView style={styles.pendingSection} testID="unassigned-section">
             <ThemedText type="small" themeColor="textSecondary">
-              整理待ち {unassigned.length}
+              {t.chronicle.pendingHeading(unassigned.length)}
             </ThemedText>
             {unassigned.map((m) => (
               <ThemedView key={m.id} style={styles.pendingRow}>
@@ -172,7 +166,7 @@ export default function ChroniclesScreen() {
           <ActivityIndicator style={{ marginTop: Spacing.five }} />
         ) : rows.length === 0 ? (
           <ThemedText type="small" themeColor="textSecondary">
-            まだマーカーが付いた会話がありません。
+            {t.chronicle.empty}
           </ThemedText>
         ) : (
           rows.map((r) => (
@@ -183,8 +177,8 @@ export default function ChroniclesScreen() {
               testID={`chronicle-${r.conversationId}`}
             >
               <ThemedText type="small" themeColor="textSecondary">
-                {r.conversationDate} ・ {SOURCE_LABEL[r.source] ?? r.source}
-                {r.markerCount > 1 ? ` ・ マーカー${r.markerCount}` : ''}
+                {r.conversationDate} ・ {t.sources[r.source] ?? r.source}
+                {r.markerCount > 1 ? t.chronicle.markerCount(r.markerCount) : ''}
               </ThemedText>
               <ThemedText numberOfLines={2}>{r.latestMarkerText}</ThemedText>
             </Pressable>

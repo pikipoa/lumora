@@ -18,21 +18,15 @@ import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 
-const SOURCE_LABEL: Record<string, string> = {
-  chatgpt: 'ChatGPT',
-  gemini: 'Gemini',
-  claude: 'Claude',
-  perplexity: 'Perplexity',
-};
-
 const SORT_OPTIONS = [
-  { key: 'new', label: '新しい順' },
-  { key: 'old', label: '古い順' },
-  { key: 'long', label: '長い順' },
-  { key: 'short', label: '短い順' },
+  { key: 'new', label: t.searchScreen.sortNew },
+  { key: 'old', label: t.searchScreen.sortOld },
+  { key: 'long', label: t.searchScreen.sortLong },
+  { key: 'short', label: t.searchScreen.sortShort },
 ] as const;
 type SortKey = (typeof SORT_OPTIONS)[number]['key'];
 
@@ -112,7 +106,7 @@ export default function SearchScreen() {
         <ThemedView style={styles.row}>
           <TextInput
             style={styles.input}
-            placeholder="キーワードで検索"
+            placeholder={t.searchScreen.placeholder}
             value={query}
             onChangeText={setQuery}
             onSubmitEditing={runSearch}
@@ -120,7 +114,7 @@ export default function SearchScreen() {
             testID="search-input"
           />
           <Pressable style={styles.smallButton} onPress={runSearch} testID="search-button">
-            <ThemedText style={styles.smallButtonText}>検索</ThemedText>
+            <ThemedText style={styles.smallButtonText}>{t.common.search}</ThemedText>
           </Pressable>
         </ThemedView>
 
@@ -130,7 +124,7 @@ export default function SearchScreen() {
               {searchedQuery}
             </ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              {sorted.length}件
+              {t.common.items(sorted.length)}
             </ThemedText>
             {sorted.length > 1 && (
               <Pressable onPress={() => setSortOpen((v) => !v)} testID="sort-toggle">
@@ -164,7 +158,7 @@ export default function SearchScreen() {
 
         {!searching && sorted !== null && sorted.length === 0 && (
           <ThemedText type="small" themeColor="textSecondary">
-            該当する会話が見つかりませんでした。
+            {t.searchScreen.empty}
           </ThemedText>
         )}
 
@@ -177,7 +171,7 @@ export default function SearchScreen() {
               testID={`search-result-${r.id}`}
             >
               <ThemedText type="small" themeColor="textSecondary">
-                {conversationDate(r)} ・ {SOURCE_LABEL[r.source] ?? r.source}
+                {conversationDate(r)} ・ {t.sources[r.source] ?? r.source}
               </ThemedText>
               {r.user_text ? (
                 <ThemedText type="smallBold" numberOfLines={2}>

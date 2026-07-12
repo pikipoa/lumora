@@ -11,6 +11,7 @@ import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing, MaxContentWidth } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useAuth } from '@/lib/auth-context';
 import { runImport } from '@/lib/importService';
 import { setLastImportSummary } from '@/lib/lastImport';
@@ -56,16 +57,14 @@ export default function ImportScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <HomeLink />
-        <ThemedText type="subtitle">会話データのアップロード</ThemedText>
+        <ThemedText type="subtitle">{t.importScreen.title}</ThemedText>
 
         <ThemedView type="backgroundElement" style={styles.helpBox}>
-          <ThemedText type="smallBold">対応形式</ThemedText>
-          <ThemedText type="small">・ChatGPT：公式エクスポートのZIP（conversations.json）</ThemedText>
-          <ThemedText type="small">
-            ・Gemini：Google TakeoutのZIP（「My Activity」→「Gemini Apps」、JSON形式を指定）
-          </ThemedText>
-          <ThemedText type="small">・Claude：公式エクスポートのZIP（conversations.json）</ThemedText>
-          <ThemedText type="small">・Perplexity：個別スレッドのMarkdownファイル</ThemedText>
+          <ThemedText type="smallBold">{t.importScreen.supportedFormats}</ThemedText>
+          <ThemedText type="small">{t.importScreen.formatChatgpt}</ThemedText>
+          <ThemedText type="small">{t.importScreen.formatGemini}</ThemedText>
+          <ThemedText type="small">{t.importScreen.formatClaude}</ThemedText>
+          <ThemedText type="small">{t.importScreen.formatPerplexity}</ThemedText>
         </ThemedView>
 
         <Pressable
@@ -74,21 +73,19 @@ export default function ImportScreen() {
           disabled={busy}
           testID="pick-file-button"
         >
-          <ThemedText style={styles.buttonText}>ファイルを選択してインポート</ThemedText>
+          <ThemedText style={styles.buttonText}>{t.importScreen.pickFile}</ThemedText>
         </Pressable>
 
         {phase.kind === 'parsing' && (
           <ThemedView style={styles.progressRow}>
             <ActivityIndicator />
-            <ThemedText type="small">{phase.fileName} を解析中…</ThemedText>
+            <ThemedText type="small">{t.importScreen.parsing(phase.fileName)}</ThemedText>
           </ThemedView>
         )}
         {phase.kind === 'saving' && (
           <ThemedView style={styles.progressRow}>
             <ActivityIndicator />
-            <ThemedText type="small">
-              保存中… {phase.done} / {phase.total} 件
-            </ThemedText>
+            <ThemedText type="small">{t.importScreen.saving(phase.done, phase.total)}</ThemedText>
           </ThemedView>
         )}
         {phase.kind === 'error' && (
@@ -99,7 +96,7 @@ export default function ImportScreen() {
         )}
 
         <ThemedText type="small" style={styles.privacyNote}>
-          アップロードした原本ファイルはこの端末内にのみ保存され、クラウドには会話テキスト（正規化済み）だけが保存されます。
+          {t.importScreen.privacyNote}
         </ThemedText>
       </ScrollView>
     </ThemedView>

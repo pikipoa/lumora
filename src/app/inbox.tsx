@@ -26,15 +26,9 @@ import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { t } from '@/i18n';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
-
-const SOURCE_LABEL: Record<string, string> = {
-  chatgpt: 'ChatGPT',
-  gemini: 'Gemini',
-  claude: 'Claude',
-  perplexity: 'Perplexity',
-};
 
 interface ConversationRow {
   id: string;
@@ -50,9 +44,9 @@ interface ProjectOption {
 }
 
 function monthKey(iso: string | null): string {
-  if (!iso) return '日付不明';
+  if (!iso) return t.inbox.monthUnknown;
   const d = new Date(iso);
-  return `${d.getFullYear()}年${d.getMonth() + 1}月`;
+  return t.inbox.monthLabel(d.getFullYear(), d.getMonth() + 1);
 }
 
 function groupByMonth(rows: ConversationRow[]): { title: string; data: ConversationRow[] }[] {
@@ -72,7 +66,7 @@ export default function InboxScreen() {
   const { projectId } = useLocalSearchParams<{ projectId?: string }>();
 
   const [rows, setRows] = useState<ConversationRow[] | null>(null);
-  const [headerLabel, setHeaderLabel] = useState('未分類（Inbox）');
+  const [headerLabel, setHeaderLabel] = useState(t.inbox.titleInbox);
   const [projectOptions, setProjectOptions] = useState<ProjectOption[] | null>(null);
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [showHeld, setShowHeld] = useState(false);
@@ -92,10 +86,10 @@ export default function InboxScreen() {
     if (projectId) {
       query = query.eq('project_id', projectId);
       const { data: project } = await supabase.from('projects').select('name').eq('id', projectId).single();
-      setHeaderLabel(project ? `${project.name}：割り当て済みの会話` : 'プロジェクト内の会話');
+      setHeaderLabel(project ? t.inbox.titleRealm(project.name) : t.inbox.titleRealmFallback);
     } else {
       query = query.is('project_id', null);
-      setHeaderLabel('未分類（Inbox）');
+      setHeaderLabel(t.inbox.titleInbox);
     }
 
     const { data: conversations } = await query;
@@ -154,18 +148,18 @@ export default function InboxScreen() {
           <>
             <HomeLink />
             <ThemedView style={styles.rowBetween}>
-              <ThemedText type="smallBold">{showHeld ? `${headerLabel}（保留一覧）` : headerLabel}</ThemedText>
+              <ThemedText type="smallBold">{showHeld ? t.inbox.heldSuffix(headerLabel) : headerLabel}</ThemedText>
               {isInboxMode && (
                 <Pressable onPress={() => setShowHeld((v) => !v)} testID="toggle-held">
                   <ThemedText type="small" themeColor="textSecondary">
-                    {showHeld ? '通常一覧に戻る' : '保留一覧を見る'}
+                    {showHeld ? t.inbox.showNormal : t.inbox.showHeld}
                   </ThemedText>
                 </Pressable>
               )}
             </ThemedView>
             {!showHeld && (
               <ThemedText type="small" style={styles.note}>
-                横断検索で見つからない時のフォールバック一覧です。会話を開いて本文を選択するとマーカーを作成できます。
+                {t.inbox.fallbackNote}
               </ThemedText>
             )}
           </>
@@ -174,7 +168,7 @@ export default function InboxScreen() {
           rows === null ? (
             <ActivityIndicator style={{ marginTop: Spacing.five }} />
           ) : (
-            <ThemedText style={styles.note}>{showHeld ? '保留中の会話はありません。' : '会話がまだありません。'}</ThemedText>
+            <ThemedText style={styles.note}>{showHeld ? t.inbox.emptyHeld : t.inbox.empty}</ThemedText>
           )
         }
         renderItem={({ item }) => (
@@ -187,8 +181,8 @@ export default function InboxScreen() {
                 {item.title}
               </ThemedText>
               <ThemedText type="small">
-                {SOURCE_LABEL[item.source] ?? item.source} ・{' '}
-                {item.created_at ? new Date(item.created_at).toLocaleDateString('ja-JP') : '日付不明'}
+                {t.sources[item.source] ?? item.source} ・{' '}
+                {item.created_at ? new Date(item.created_at).toLocaleDateString('ja-JP') : t.common.unknownDate}
               </ThemedText>
             </Pressable>
 
@@ -199,22 +193,22 @@ export default function InboxScreen() {
                   onPress={() => restoreConversation(item.id)}
                   testID={`restore-${item.id}`}
                 >
-                  <ThemedText type="small">元に戻す</ThemedText>
+                  <ThemedText type="small">{t.inbox.restore}</ThemedText>
                 </Pressable>
                 {confirmDeleteId === item.id ? (
                   <>
                     <ThemedText type="small" style={styles.error}>
-                      本当に削除しますか？元に戻せません
+                      {t.inbox.deleteConfirm}
                     </ThemedText>
                     <Pressable
                       style={styles.buttonDanger}
                       onPress={() => deleteConversation(item.id)}
                       testID={`confirm-delete-${item.id}`}
                     >
-                      <ThemedText style={styles.buttonText}>完全に削除</ThemedText>
+                      <ThemedText style={styles.buttonText}>{t.inbox.deletePermanently}</ThemedText>
                     </Pressable>
                     <Pressable style={styles.buttonOutline} onPress={() => setConfirmDeleteId(null)}>
-                      <ThemedText type="small">キャンセル</ThemedText>
+                      <ThemedText type="small">{t.common.cancel}</ThemedText>
                     </Pressable>
                   </>
                 ) : (
@@ -224,7 +218,7 @@ export default function InboxScreen() {
                     testID={`delete-${item.id}`}
                   >
                     <ThemedText type="small" style={styles.error}>
-                      完全に削除
+                      {t.inbox.deletePermanently}
                     </ThemedText>
                   </Pressable>
                 )}
@@ -237,12 +231,12 @@ export default function InboxScreen() {
                     onPress={() => openAssignPicker(item.id)}
                     testID={`assign-${item.id}`}
                   >
-                    <ThemedText type="small">プロジェクトに割り当てる</ThemedText>
+                    <ThemedText type="small">{t.inbox.assignToRealm}</ThemedText>
                   </Pressable>
                 )}
 
                 <Pressable style={styles.buttonOutline} onPress={() => holdConversation(item.id)} testID={`hold-${item.id}`}>
-                  <ThemedText type="small">保留にする</ThemedText>
+                  <ThemedText type="small">{t.inbox.hold}</ThemedText>
                 </Pressable>
               </ThemedView>
             )}
@@ -261,7 +255,7 @@ export default function InboxScreen() {
                 ))}
                 {(projectOptions ?? []).length === 0 && (
                   <ThemedText type="small" themeColor="textSecondary">
-                    プロジェクトがまだありません
+                    {t.inbox.noRealms}
                   </ThemedText>
                 )}
               </ThemedView>

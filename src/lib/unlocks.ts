@@ -11,6 +11,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { t } from '@/i18n';
 import { supabase } from '@/lib/supabase';
 
 export interface UnlockCounts {
@@ -82,14 +83,6 @@ export interface CelebrationCard {
 
 // v2.1（2026-07-12）：Arcaは内部概念（＝マーカーそのもの）に降格したため、Arcaの解放演出は
 // 廃止した。SeenFlagsのキー名`arcaChronicle`はAsyncStorage互換のためそのまま残している。
-export const CHRONICLE_CELEBRATION: CelebrationCard = {
-  emoji: '📜',
-  title: 'Chronicle',
-  body: '一文の記憶をたどる、文脈の図書館が開かれました。',
-};
-
-export const REALM_CELEBRATION: CelebrationCard = {
-  emoji: '🌍',
-  title: 'Realm',
-  body: '知識世界が形成されました。',
-};
+// コピー本文はi18n辞書（src/i18n/ja.ts）に置く。
+export const CHRONICLE_CELEBRATION: CelebrationCard = t.celebrations.chronicle;
+export const REALM_CELEBRATION: CelebrationCard = t.celebrations.realm;

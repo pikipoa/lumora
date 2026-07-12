@@ -25,6 +25,7 @@ import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { t } from '@/i18n';
 import { offsetsToRange, rangeToOffsets } from '@/lib/domSelection';
 import { computeSegments, locateQuotedText, type MarkerLayer } from '@/lib/markerLayout';
 import { supabase } from '@/lib/supabase';
@@ -36,13 +37,6 @@ const MARKER_COLORS = [
   { key: 'blue', hex: '#3D9CFF' },
   { key: 'red', hex: '#FF4D4D' },
 ] as const;
-
-const SOURCE_LABEL: Record<string, string> = {
-  chatgpt: 'ChatGPT',
-  gemini: 'Gemini',
-  claude: 'Claude',
-  perplexity: 'Perplexity',
-};
 
 interface ConversationDetail {
   id: string;
@@ -341,7 +335,7 @@ export default function ConversationDetailScreen() {
   if (!conversation) {
     return (
       <ThemedView style={styles.container}>
-        <ThemedText style={styles.note}>会話が見つかりませんでした。</ThemedText>
+        <ThemedText style={styles.note}>{t.conversation.notFound}</ThemedText>
       </ThemedView>
     );
   }
@@ -353,15 +347,15 @@ export default function ConversationDetailScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <HomeLink />
         <Pressable onPress={() => router.back()} testID="back-button">
-          <ThemedText type="link">← 戻る</ThemedText>
+          <ThemedText type="link">{t.common.back}</ThemedText>
         </Pressable>
 
         {/* 会話タイトル（＝最初のユーザー発言のことが多い）を大見出しにしない（2026-07-12）。
             日付・AI元・Realmと同列の小さなメタ情報として1行に収める */}
         <ThemedText type="small" themeColor="textSecondary">
           {new Date(conversation.created_at ?? conversation.imported_at).toLocaleDateString('ja-JP')} ・{' '}
-          {SOURCE_LABEL[conversation.source] ?? conversation.source} ・{' '}
-          {conversation.projects?.name ?? '未分類'}
+          {t.sources[conversation.source] ?? conversation.source} ・{' '}
+          {conversation.projects?.name ?? t.conversation.unassigned}
         </ThemedText>
         <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
           {conversation.title}
@@ -369,16 +363,16 @@ export default function ConversationDetailScreen() {
 
         {/* 本文（マーカーハイライト＋範囲選択） */}
         <ThemedView type="backgroundElement" style={styles.section}>
-          <ThemedText type="smallBold">本文</ThemedText>
+          <ThemedText type="smallBold">{t.conversation.bodyTitle}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            文字をドラッグ選択すると新規マーカーを作成できます。ハイライト済み箇所をタップすると、その場で範囲を左右にドラッグ調整してから承認/却下できます。
+            {t.conversation.bodyHint}
           </ThemedText>
           {messages.map((m) => {
             const segments = computeSegments(m.content, layersByMessage[m.id] ?? []);
             return (
               <ThemedView key={m.id} style={styles.messageRow}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {m.role === 'user' ? 'あなた' : 'AI'}
+                  {m.role === 'user' ? t.conversation.roleUser : t.conversation.roleAssistant}
                 </ThemedText>
                 <View
                   ref={(el) => {
@@ -419,12 +413,14 @@ export default function ConversationDetailScreen() {
           <ThemedView type="backgroundElement" style={styles.actionBar}>
             <ThemedText type="small">
               {editingMarker
-                ? `${editingMarker.status === 'proposed' ? '🤖 AI提案（Ore）を編集：' : 'マーカーを編集：'}「${(pendingSelection.text || editingMarker.quoted_text).slice(0, 40)}」`
-                : `新規マーカーを作成：「${pendingSelection.text.slice(0, 40)}」`}
+                ? (editingMarker.status === 'proposed' ? t.conversation.editingProposed : t.conversation.editingMarker)(
+                    (pendingSelection.text || editingMarker.quoted_text).slice(0, 40),
+                  )
+                : t.conversation.newMarker(pendingSelection.text.slice(0, 40))}
             </ThemedText>
             {editingMarker && (
               <ThemedText type="small" themeColor="textSecondary">
-                範囲をドラッグして調整してから色を選ぶと、その範囲で確定します
+                {t.conversation.adjustHint}
               </ThemedText>
             )}
             <ThemedView style={styles.row}>
@@ -444,7 +440,7 @@ export default function ConversationDetailScreen() {
                   onPress={() => rejectMarker(editingMarker.id)}
                   testID="reject-marker-button"
                 >
-                  <ThemedText type="small">却下</ThemedText>
+                  <ThemedText type="small">{t.conversation.reject}</ThemedText>
                 </Pressable>
               )}
               <Pressable
@@ -453,7 +449,7 @@ export default function ConversationDetailScreen() {
                 onPress={cancelPendingMarker}
                 testID="cancel-new-marker"
               >
-                <ThemedText type="small">キャンセル</ThemedText>
+                <ThemedText type="small">{t.common.cancel}</ThemedText>
               </Pressable>
             </ThemedView>
 
@@ -461,7 +457,7 @@ export default function ConversationDetailScreen() {
             {editingMarker && !editingMarker.project_id && projects.length > 0 && (
               <>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Realmへ収納：
+                  {t.conversation.assignPrompt}
                 </ThemedText>
                 <ThemedView style={styles.tagWrap}>
                   {projects.map((p) => (
@@ -485,7 +481,7 @@ export default function ConversationDetailScreen() {
         {!pendingSelection && realmPickerMarker && (
           <ThemedView type="backgroundElement" style={styles.actionBar} testID="realm-picker-bar">
             <ThemedText type="small">
-              このマーカーをどのRealmへ収納しますか？「{(realmPickerMarker.quoted_text ?? '').slice(0, 30)}」
+              {t.conversation.realmPickerPrompt((realmPickerMarker.quoted_text ?? '').slice(0, 30))}
             </ThemedText>
             <ThemedView style={styles.tagWrap}>
               {projects.map((p) => (
@@ -500,7 +496,7 @@ export default function ConversationDetailScreen() {
               ))}
               {projects.length === 0 && (
                 <ThemedText type="small" themeColor="textSecondary">
-                  Realmがまだありません（Realm一覧から作成できます）
+                  {t.conversation.noRealmsHint}
                 </ThemedText>
               )}
               <Pressable
@@ -508,7 +504,7 @@ export default function ConversationDetailScreen() {
                 onPress={() => setRealmPickerMarkerId(null)}
                 testID="realm-picker-later"
               >
-                <ThemedText type="small">後で</ThemedText>
+                <ThemedText type="small">{t.common.later}</ThemedText>
               </Pressable>
             </ThemedView>
           </ThemedView>
@@ -516,25 +512,25 @@ export default function ConversationDetailScreen() {
 
         {/* メモ */}
         <ThemedView type="backgroundElement" style={styles.section}>
-          <ThemedText type="smallBold">メモ</ThemedText>
+          <ThemedText type="smallBold">{t.conversation.memoTitle}</ThemedText>
           <TextInput
             style={styles.textArea}
             value={memoDraft}
-            onChangeText={(t) => {
-              setMemoDraft(t);
+            onChangeText={(text) => {
+              setMemoDraft(text);
               setMemoSaved(false);
             }}
             multiline
-            placeholder="この会話についてのメモ"
+            placeholder={t.conversation.memoPlaceholder}
             testID="memo-input"
           />
           <ThemedView style={styles.row}>
             <Pressable style={styles.smallButton} onPress={saveMemo} testID="memo-save-button">
-              <ThemedText style={styles.smallButtonText}>保存</ThemedText>
+              <ThemedText style={styles.smallButtonText}>{t.common.save}</ThemedText>
             </Pressable>
             {memoSaved && (
               <ThemedText type="small" testID="memo-saved-indicator">
-                ✅ 保存しました
+                {t.conversation.memoSaved}
               </ThemedText>
             )}
           </ThemedView>

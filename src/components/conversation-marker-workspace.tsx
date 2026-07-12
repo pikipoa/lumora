@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -21,6 +21,7 @@ import { Spacing } from '@/constants/theme';
 import { t } from '@/i18n';
 import { offsetsToRange, rangeToOffsets } from '@/lib/domSelection';
 import { computeSegments, locateQuotedText, type MarkerLayer } from '@/lib/markerLayout';
+import { getRecentRealmIds, markRealmUsed, sortByRecency } from '@/lib/recentRealms';
 import { supabase } from '@/lib/supabase';
 
 const MARKER_COLORS = [
@@ -70,6 +71,13 @@ interface PendingSelection {
   text: string;
 }
 
+/** 選択範囲のビューポート座標。Edit Menu/Selection Toolbar風の浮動色ツールバーの位置決めに使う */
+interface ScreenRect {
+  top: number;
+  left: number;
+  width: number;
+}
+
 interface Props {
   conversationId: string;
   jumpToMarkerId?: string | null;
@@ -87,10 +95,24 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   const [loading, setLoading] = useState(true);
 
   const [pendingSelection, setPendingSelection] = useState<PendingSelection | null>(null);
+  const [selectionRect, setSelectionRect] = useState<ScreenRect | null>(null);
   const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
   // 色確定直後に「Realmを選ぶ」ステップを出す対象マーカー（v2.1認知フロー。スキップ可）
   const [realmPickerMarkerId, setRealmPickerMarkerId] = useState<string | null>(null);
   const messageRefs = useRef<Record<string, View | null>>({});
+  const { width: windowWidth } = useWindowDimensions();
+
+  // Realmチップの並び順（あとで→直近使用順）用。ユーザーIDが分かってから読み込む
+  const [userId, setUserId] = useState<string | null>(null);
+  const [recentRealmIds, setRecentRealmIds] = useState<string[]>([]);
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      const uid = data.user?.id ?? null;
+      setUserId(uid);
+      if (uid) getRecentRealmIds(uid).then(setRecentRealmIds);
+    });
+  }, []);
+  const sortedProjects = useMemo(() => sortByRecency(projects, recentRealmIds), [projects, recentRealmIds]);
 
   const load = useCallback(async () => {
     if (!conversationId) return;
@@ -169,6 +191,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
         setPendingSelection(null);
+        setSelectionRect(null);
         setEditingMarkerId(null);
         return;
       }
@@ -178,9 +201,12 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         if (!el || !el.contains(domRange.commonAncestorContainer)) continue;
         const { start, end, text } = rangeToOffsets(el, domRange);
         setPendingSelection({ messageId, start, end, text });
+        const rect = domRange.getBoundingClientRect();
+        setSelectionRect({ top: rect.top, left: rect.left, width: rect.width });
         return;
       }
       setPendingSelection(null);
+      setSelectionRect(null);
       setEditingMarkerId(null);
     }
     document.addEventListener('selectionchange', onSelectionChange);
@@ -210,6 +236,8 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     const sel = window.getSelection();
     sel?.removeAllRanges();
     sel?.addRange(range);
+    const rect = range.getBoundingClientRect();
+    setSelectionRect({ top: rect.top, left: rect.left, width: rect.width });
   }
 
   async function recordMarkerHistory(markerId: string, color: string | null, status: string) {
@@ -262,16 +290,23 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     }
     clearNativeSelection();
     setPendingSelection(null);
+    setSelectionRect(null);
     setEditingMarkerId(null);
     setRealmPickerMarkerId(nextRealmPickerId);
     load();
   }
 
-  // マーカーをRealmへ収納する（v2.1：色確定直後 or 既存マーカータップ時）
+  // マーカーをRealmへ収納する（v2.1：色確定直後 or 既存マーカータップ時）。
+  // 割り当てたRealmはローカルの直近使用履歴に記録し、次回以降チップの先頭寄りに出す
   async function assignMarkerToRealm(markerId: string, projectId: string) {
     await supabase.from('markers').update({ project_id: projectId }).eq('id', markerId);
+    if (userId) {
+      await markRealmUsed(userId, projectId);
+      setRecentRealmIds(await getRecentRealmIds(userId));
+    }
     clearNativeSelection();
     setPendingSelection(null);
+    setSelectionRect(null);
     setEditingMarkerId(null);
     setRealmPickerMarkerId(null);
     load();
@@ -284,14 +319,9 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     if (!alreadyRejected) await recordMarkerHistory(markerId, null, 'rejected');
     clearNativeSelection();
     setPendingSelection(null);
+    setSelectionRect(null);
     setEditingMarkerId(null);
     load();
-  }
-
-  function cancelPendingMarker() {
-    clearNativeSelection();
-    setPendingSelection(null);
-    setEditingMarkerId(null);
   }
 
   const layersByMessage = useMemo(() => {
@@ -412,25 +442,27 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         })}
       </ThemedView>
 
-      {pendingSelection && (
-        <ThemedView type="backgroundElement" style={styles.actionBar}>
-          <ThemedText type="small">
-            {editingMarker
-              ? (editingMarker.status === 'proposed' ? t.conversation.editingProposed : t.conversation.editingMarker)(
-                  (pendingSelection.text || editingMarker.quoted_text).slice(0, 40),
-                )
-              : t.conversation.newMarker(pendingSelection.text.slice(0, 40))}
-          </ThemedText>
-          {editingMarker && (
-            <ThemedText type="small" themeColor="textSecondary">
-              {t.conversation.adjustHint}
-            </ThemedText>
-          )}
-          <ThemedView style={styles.row}>
+      {/* Edit Menu/Selection Toolbar風：選択範囲のすぐ近くに浮かぶ、色だけの最小ツールバー。
+          説明文やキャンセルボタンは持たない（選択を解いて他をタップすれば自然にキャンセルになる） */}
+      {pendingSelection && selectionRect && (
+        <View
+          style={[
+            styles.floatingToolbar,
+            {
+              top: Math.max(Spacing.two, selectionRect.top - 44),
+              left: Math.min(
+                Math.max(Spacing.two, selectionRect.left + selectionRect.width / 2 - 115),
+                windowWidth - 230 - Spacing.two,
+              ),
+            },
+          ]}
+          testID="marker-color-toolbar"
+        >
+          <ThemedView type="backgroundElement" style={styles.toolbarInner}>
             {MARKER_COLORS.map((c) => (
               <Pressable
                 key={c.key}
-                style={[styles.swatch, { backgroundColor: c.hex }]}
+                style={[styles.swatchSmall, { backgroundColor: c.hex }]}
                 {...preventSelectionLoss}
                 onPress={() => confirmPendingMarker(c.key)}
                 testID={`marker-color-${c.key}`}
@@ -438,56 +470,56 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
             ))}
             {editingMarker && (
               <Pressable
-                style={styles.smallButtonOutline}
+                style={styles.toolbarReject}
                 {...preventSelectionLoss}
                 onPress={() => rejectMarker(editingMarker.id)}
                 testID="reject-marker-button"
               >
-                <ThemedText type="small">{t.conversation.reject}</ThemedText>
+                <ThemedText type="small">✕</ThemedText>
               </Pressable>
             )}
-            <Pressable
-              style={styles.smallButtonOutline}
-              {...preventSelectionLoss}
-              onPress={cancelPendingMarker}
-              testID="cancel-new-marker"
-            >
-              <ThemedText type="small">{t.common.cancel}</ThemedText>
-            </Pressable>
           </ThemedView>
+        </View>
+      )}
 
-          {/* 既存マーカーがRealm未割当なら、色を選び直さなくてもこの場で収納できる（整理待ちからのジャンプ先） */}
-          {editingMarker && !editingMarker.project_id && projects.length > 0 && (
-            <>
-              <ThemedText type="small" themeColor="textSecondary">
-                {t.conversation.assignPrompt}
-              </ThemedText>
-              <ThemedView style={styles.tagWrap}>
-                {projects.map((p) => (
-                  <Pressable
-                    key={p.id}
-                    style={styles.chip}
-                    {...preventSelectionLoss}
-                    onPress={() => assignMarkerToRealm(editingMarker.id, p.id)}
-                    testID={`assign-realm-${p.id}`}
-                  >
-                    <ThemedText type="small">{p.name}</ThemedText>
-                  </Pressable>
-                ))}
-              </ThemedView>
-            </>
-          )}
+      {/* 既存マーカーがRealm未割当なら、色を選び直さなくてもこの場で収納できる（整理待ちからのジャンプ先） */}
+      {pendingSelection && editingMarker && !editingMarker.project_id && projects.length > 0 && (
+        <ThemedView type="backgroundElement" style={styles.actionBar}>
+          <ThemedText type="small" themeColor="textSecondary">
+            {t.conversation.assignPrompt}
+          </ThemedText>
+          <ThemedView style={styles.tagWrap}>
+            {sortedProjects.map((p) => (
+              <Pressable
+                key={p.id}
+                style={styles.chip}
+                {...preventSelectionLoss}
+                onPress={() => assignMarkerToRealm(editingMarker.id, p.id)}
+                testID={`assign-realm-${p.id}`}
+              >
+                <ThemedText type="small">{p.name}</ThemedText>
+              </Pressable>
+            ))}
+          </ThemedView>
         </ThemedView>
       )}
 
-      {/* v2.1認知フロー：色確定の直後に「Realmを選ぶ」ステップ（スキップ可） */}
+      {/* v2.1認知フロー：色確定の直後に「Realmを選ぶ」ステップ（スキップ可）。
+          チップの並び順は「あとで」を先頭、続けて直近使用したRealm順 */}
       {!pendingSelection && realmPickerMarker && (
         <ThemedView type="backgroundElement" style={styles.actionBar} testID="realm-picker-bar">
           <ThemedText type="small">
             {t.conversation.realmPickerPrompt((realmPickerMarker.quoted_text ?? '').slice(0, 30))}
           </ThemedText>
           <ThemedView style={styles.tagWrap}>
-            {projects.map((p) => (
+            <Pressable
+              style={styles.smallButtonOutline}
+              onPress={() => setRealmPickerMarkerId(null)}
+              testID="realm-picker-later"
+            >
+              <ThemedText type="small">{t.common.later}</ThemedText>
+            </Pressable>
+            {sortedProjects.map((p) => (
               <Pressable
                 key={p.id}
                 style={styles.chip}
@@ -502,13 +534,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                 {t.conversation.noRealmsHint}
               </ThemedText>
             )}
-            <Pressable
-              style={styles.smallButtonOutline}
-              onPress={() => setRealmPickerMarkerId(null)}
-              testID="realm-picker-later"
-            >
-              <ThemedText type="small">{t.common.later}</ThemedText>
-            </Pressable>
           </ThemedView>
         </ThemedView>
       )}
@@ -532,7 +557,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#208AEF',
   },
-  swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#00000022' },
+  floatingToolbar: { position: 'fixed', zIndex: 50 } as object,
+  toolbarInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderRadius: 20,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.two,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  swatchSmall: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: '#00000022' },
+  toolbarReject: { paddingHorizontal: Spacing.one },
   messageRow: { gap: Spacing.half, paddingVertical: Spacing.one },
   tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   chip: {

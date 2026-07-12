@@ -8,13 +8,34 @@ Knowledge OS — AIチャット統合ナレッジアプリ
 
 ## 0. 設計思想
 
+### 5つの知識オブジェクト（v2.1・決定・2026-07-12）
+
+Lumoraのデータモデルは、UIや画面より先に、次の5つの知識オブジェクトの定義を正とする（v2.2提案「UIより先にデータ構造を定義する」の採用）。実装・画面設計・AIプロンプトのすべてがこの定義に従う：
+
+| オブジェクト | 定義 | DB上の実体 |
+|---|---|---|
+| **Chronicle** | **文脈**。マーカーを含む会話。知識が生まれた背景を保持し、人間が過去を読み返すための層 | `conversations`（confirmedマーカーを1件以上持つもの） |
+| **Arca** | **知識の最小単位**。＝マーカーそのもの。**ユーザーがマーカーを引いた瞬間にArcaが生成される**。AI分析はArcaを作る工程ではなく、Arcaへ意味（Wing/Tag）を付与する工程。UIの主役ではなく内部概念であり、画面に「Arca」という名を積極的に出さない | `markers`（status=confirmed） |
+| **Realm** | **知識世界**。プロジェクトであり、知識編集の中心となる場所 | `projects` |
+| **Wing** | **人間の理解構造**。知識を理解するための章立て。人間用の分類 | `themes`＋`marker_wings` |
+| **Tag** | **AIの理解構造**。検索精度・推論・関連知識発見のためにAIが使う。常時表示はしないが、「AI分析結果を見る」でレビュー可能（ユーザーがやっているのはタグ編集ではなく「AIがこの知識を正しく理解できているかの確認」） | `tags`＋`marker_tags` |
+
+知識フロー（人間の認知順序と一致させる）：
+
+```
+Import → Search → マーカー（＝Arca生成）→ Realm選択 → Realmへ収納
+→ AI分析 → Wing候補（確度付き）→ ユーザー承認 → 収納 → Tag（内部）
+```
+
+### 旧・設計思想（Phase1初期。階層とタグの分離）
+
 **「階層構造（置き場所）」と「タグ（切り口）」を分離する**
 
 - 階層構造：プロジェクト → テーマ → 会話。会話が「物理的にどこに属するか」を1本に決める
 - タグ：`#UI` `#世界観` `#闘着場` など。会話が「どんな意味を持つか」を複数付けられる
 - 横断検索は主にタグで実現し、階層はナビゲーション（ブラウジング）用途に使う
 
-この分離により、「闘着場というテーマ配下だが、UIタグも世界観タグも両方付いている」という状態を自然に表現できる。
+この分離の思想自体は5オブジェクト定義に引き継がれている（Wing=置き場所に相当する人間用の章、Tag=切り口に相当するAI用のラベル）。
 
 ---
 
@@ -147,10 +168,13 @@ MarkerWing {
   wing_id: uuid              // themes.id（UI表示名はWing）
   status: "proposed" | "confirmed" | "rejected"
   proposed_by: "ai" | "human"
+  confidence: number | null  // v2.1追加：AI候補の確度（0〜100）。UI表示は◎（90以上）/○。
+                             // 将来の学習型自動収納（95%以上のみ自動、「元に戻す」付き）の土台
   confirmed_at: datetime | null
   created_at: datetime
 }
 ```
+**Wing候補の承認フロー（v2.1・2026-07-12）**：AI分析はWing候補を確度付きで提示するだけで、収納の決定は常にユーザー。「採用（＝confirmed）／既存Wingを選択／新しいWingを作成」の3択。学習型の自動収納は将来の最終形としてVISION.mdバックログへ。
 `marker_tags`と全く同じ状態機械（proposed→confirmed/rejected、CLAUDE.md 2-1）を踏襲する。1つのMarkerが複数のWingに`confirmed`で所属できる（`unique(marker_id, wing_id)`のみ制約、上限は無いがEdge Function `organize-wings`のプロンプトで1〜2個・多くとも3個程度に留めるよう指示している）。人間がArcaから手動で追加する場合は`proposed_by: human, status: confirmed`（提案フローを経ない、MarkerTagの手動追加と同じパターン）。
 
 ### Marker（マーカー／重要箇所）※知識の最小単位（2026-07-11の情報フロー転換により中心的存在に）
@@ -160,7 +184,9 @@ Marker {
   conversation_id: uuid
   message_id: uuid          // どのメッセージ内か
   project_id: uuid | null   // 実装確定・2026-07-11：マーカーを直接Realmへ割り当てる手段
-  quoted_text: string       // マーカーを引いた原文の抜粋
+  quoted_text: string       // マーカーを引いた原文の抜粋。Chronicle原文として不変（v2.1）
+  edited_text: string | null // v2.1追加：Realm内で自由編集できる表示用本文（文章修正・要約・補足）。
+                             // 表示はedited_text ?? quoted_text。原文が不変なのでAIは元知識を参照し続けられる
   color: "pink" | "green" | "yellow" | "blue" | "red" | null
                              // confirmed時は必須。proposed（AI提案・未確定）時はnull許容
   role_tag: "idea" | "hypothesis" | "decision" | "strategy" | "learning" | null
@@ -170,6 +196,7 @@ Marker {
   created_at: datetime
 }
 ```
+**Arcaとの関係（v2.1・2026-07-12）**：confirmedのMarker＝Arca（知識の最小単位）。**マーカーを引いた瞬間にArcaが生成される**のであって、AI分析がArcaを作るのではない（AI分析はWing/Tagという意味を付与する後工程）。Realm選択はマーカー作成直後にスキップ可能で、未割当（project_id null）のArcaはChronicle一覧の先頭「整理待ち」セクションに現れ、最後の1件が割当された瞬間にセクションごと消える。
 **情報フローの転換（決定・2026-07-11）**：AIによる「会話全体からのマーカー自動発見」は廃止した。マーカーは常に人間が横断検索→本文選択で手動作成する（`proposed_by: human`のみ。旧仕様の「AIがproposedで自動生成」は行わない）。詳細経緯：`VISION.md` 3-3、`C:\Users\user\.claude\plans\parsed-enchanting-dream.md`。
 **色の選択＝確定操作そのもの**：人間が5色（蛍光ピンク/グリーン/イエロー/ブルー/レッド）のいずれかを選ぶ行為が、そのままマーカーを`confirmed`にする操作を兼ねる（詳細はux-flow-and-screens.md）。**マーカーがconfirmedになった時点＝Arcaに追加された状態**であり、Realm（`project_id`）への割り当ては別の任意操作。
 

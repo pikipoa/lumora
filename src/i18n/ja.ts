@@ -192,6 +192,8 @@ export const ja = {
     sortOld: '古い順',
     sortLong: '長い順',
     sortShort: '短い順',
+    peekClose: '← 検索結果へ戻る',
+    peekViewFull: '会話全体を見る',
   },
 
   chronicle: {

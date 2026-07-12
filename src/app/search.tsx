@@ -10,10 +10,11 @@
  * - 並び替え（新しい順/古い順/長い順/短い順）を小さなポップオーバーで切替できる
  */
 
-import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
+import { ConversationPeekSheet } from '@/components/conversation-peek-sheet';
 import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -48,7 +49,6 @@ function conversationDate(r: ResultRow): string {
 
 export default function SearchScreen() {
   const { session, loading } = useAuth();
-  const router = useRouter();
   const { q: initialQuery } = useLocalSearchParams<{ q?: string }>();
 
   const [query, setQuery] = useState(initialQuery ?? '');
@@ -57,6 +57,9 @@ export default function SearchScreen() {
   const [results, setResults] = useState<ResultRow[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('new');
+  // 検索結果タップ→この会話をボトムシートで覗く（2026-07-12）。フルページ遷移ではないため
+  // シートを閉じても検索結果一覧・スクロール位置・並び替え状態はそのまま保たれる
+  const [peekConversationId, setPeekConversationId] = useState<string | null>(null);
   const [sortOpen, setSortOpen] = useState(false);
 
   const runSearch = useCallback(async () => {
@@ -167,7 +170,7 @@ export default function SearchScreen() {
             <Pressable
               key={r.id}
               style={styles.resultRow}
-              onPress={() => router.push({ pathname: '/conversation/[id]', params: { id: r.id } })}
+              onPress={() => setPeekConversationId(r.id)}
               testID={`search-result-${r.id}`}
             >
               <ThemedText type="small" themeColor="textSecondary">
@@ -190,6 +193,14 @@ export default function SearchScreen() {
             </Pressable>
           ))}
       </ScrollView>
+
+      {peekConversationId && (
+        <ConversationPeekSheet
+          conversationId={peekConversationId}
+          searchTerm={searchedQuery ?? ''}
+          onClose={() => setPeekConversationId(null)}
+        />
+      )}
     </ThemedView>
   );
 }

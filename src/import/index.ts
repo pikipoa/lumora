@@ -22,7 +22,7 @@ export function parseImportFile(file: ImportFile): ImportOutcome {
 
   switch (detected.kind) {
     case 'chatgpt':
-      return { ok: true, result: parseChatGpt(detected.conversationsJson) };
+      return { ok: true, result: parseChatGpt(detected.conversationsJsons) };
     case 'claude':
       return { ok: true, result: parseClaude(detected.conversationsJson) };
     case 'gemini': {

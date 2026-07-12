@@ -59,7 +59,7 @@ export interface ImportFile {
  * unsupported はユーザーに対処法（例：GeminiはJSON形式で再エクスポート）を案内する。
  */
 export type DetectResult =
-  | { kind: 'chatgpt'; conversationsJson: string }
+  | { kind: 'chatgpt'; conversationsJsons: string[] }
   | { kind: 'claude'; conversationsJson: string }
   | { kind: 'gemini'; activityJsons: string[]; warnings: string[] }
   | { kind: 'perplexity'; markdown: string; fileName: string }

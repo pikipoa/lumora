@@ -8,6 +8,10 @@
  * - role: system / tool はUIに出さないため除外
  * - content.parts 以外のcontent_type（code, multimodal等）はテキスト部分のみ拾い
  *   contentFormatLost を立てる
+ *
+ * 実データ検証（2026-07-12）：チャット履歴が多いアカウントでは conversations.json が
+ * conversations-000.json, conversations-001.json... のように複数ファイルへ分割される
+ * ことがあるため、複数ファイルを受け取りまとめて1つの結果にする（Gemini parserと同じ形）
  */
 
 import type {
@@ -18,41 +22,37 @@ import type {
   ParseWarning,
 } from '../types';
 
-export function parseChatGpt(json: string): ParseResult {
+export function parseChatGpt(jsons: string[]): ParseResult {
   const conversations: ParsedConversation[] = [];
   const failed: ParseFailure[] = [];
   const warnings: ParseWarning[] = [];
 
-  let root: unknown;
-  try {
-    root = JSON.parse(json);
-  } catch (e) {
-    return {
-      source: 'chatgpt',
-      conversations: [],
-      failed: [{ conversationRef: '(ファイル全体)', error: `JSONとして読めません: ${String(e)}` }],
-      warnings: [],
-    };
-  }
+  jsons.forEach((json, fileIndex) => {
+    const fileRef = jsons.length > 1 ? `(ファイル${fileIndex + 1})` : '(ファイル全体)';
 
-  const items = Array.isArray(root) ? root : null;
-  if (!items) {
-    return {
-      source: 'chatgpt',
-      conversations: [],
-      failed: [{ conversationRef: '(ファイル全体)', error: 'conversations.jsonが配列形式ではありません' }],
-      warnings: [],
-    };
-  }
-
-  items.forEach((item, index) => {
-    const ref = refOf(item, index);
+    let root: unknown;
     try {
-      const conv = parseOneConversation(item, ref, warnings);
-      if (conv) conversations.push(conv);
+      root = JSON.parse(json);
     } catch (e) {
-      failed.push({ conversationRef: ref, error: String(e) });
+      failed.push({ conversationRef: fileRef, error: `JSONとして読めません: ${String(e)}` });
+      return;
     }
+
+    const items = Array.isArray(root) ? root : null;
+    if (!items) {
+      failed.push({ conversationRef: fileRef, error: 'conversations.jsonが配列形式ではありません' });
+      return;
+    }
+
+    items.forEach((item, index) => {
+      const ref = refOf(item, index);
+      try {
+        const conv = parseOneConversation(item, ref, warnings);
+        if (conv) conversations.push(conv);
+      } catch (e) {
+        failed.push({ conversationRef: ref, error: String(e) });
+      }
+    });
   });
 
   return { source: 'chatgpt', conversations, failed, warnings };

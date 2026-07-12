@@ -33,6 +33,17 @@ describe('detectFormat', () => {
     expect(detectFormat(file).kind).toBe('claude');
   });
 
+  test('分割されたChatGPTエクスポート（conversations-000.json等）を1つにまとめて判定する', () => {
+    const file = zipFile('chatgpt-export-large.zip', {
+      'conversations-000.json': chatgptJson,
+      'conversations-001.json': chatgptJson,
+      'chat.html': '<html></html>',
+    });
+    const r = detectFormat(file);
+    expect(r.kind).toBe('chatgpt');
+    if (r.kind === 'chatgpt') expect(r.conversationsJsons).toHaveLength(2);
+  });
+
   test('Takeout：ネスト階層（My Activity/Gemini Apps）を判定する', () => {
     const file = zipFile('takeout.zip', {
       'Takeout/My Activity/Gemini Apps/MyActivity.json': geminiActivityJson,

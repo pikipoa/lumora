@@ -95,10 +95,19 @@ function detectZip(file: ImportFile): DetectResult {
   }
 
   // --- ChatGPT / Claude（どちらも conversations.json を含むZIP） ---
-  const convEntry = names.find((n) => n.split('/').pop() === 'conversations.json');
-  if (convEntry) {
-    const json = safeDecode(entries[convEntry]);
-    return detectRawJson(json, file.name);
+  // 実データ検証（2026-07-12）：チャット履歴が多いアカウントのChatGPTエクスポートは
+  // conversations.jsonが単一ファイルではなく conversations-000.json, conversations-001.json...
+  // のように分割される（新形式）。両パターンに対応するため命名パターンで全件を集める
+  const convEntries = names.filter((n) => /^conversations(-\d+)?\.json$/i.test(n.split('/').pop() ?? '')).sort();
+  if (convEntries.length > 0) {
+    const jsons = convEntries.map((n) => safeDecode(entries[n]));
+    if (convEntries.length === 1) {
+      return detectRawJson(jsons[0], convEntries[0]);
+    }
+    // 複数ファイル：分割形式は今のところChatGPTでのみ確認されている。最初のファイルの中身で
+    // ChatGPT形式であることを確認してから全ファイルをまとめて渡す（他形式ならそのままエラーを返す）
+    const first = detectRawJson(jsons[0], convEntries[0]);
+    return first.kind === 'chatgpt' ? { kind: 'chatgpt', conversationsJsons: jsons } : first;
   }
 
   return {
@@ -136,7 +145,7 @@ function detectRawJson(json: string, fileName: string): DetectResult {
         guidance: 'エクスポートに会話が含まれているか確認してください。',
       };
     }
-    if ('mapping' in sample) return { kind: 'chatgpt', conversationsJson: json };
+    if ('mapping' in sample) return { kind: 'chatgpt', conversationsJsons: [json] };
     if ('chat_messages' in sample) return { kind: 'claude', conversationsJson: json };
     if ('header' in sample || 'title' in sample) {
       return { kind: 'gemini', activityJsons: [json], warnings: [] };

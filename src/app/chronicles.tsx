@@ -1,13 +1,13 @@
 /**
- * Chronicle（文脈ライブラリ）。進化するホーム画面（2026-07-11）で新設。
- * 詳細経緯：C:\Users\user\.claude\plans\parsed-enchanting-dream.md
- * 「2026-07-11 進化するホーム画面（Progressive Unlock UI）」
- *
- * 「マーカーが1つ以上付いた会話」だけを集めた一覧。Arca（一文＝知識の種）に対して、
- * Chronicleは「その一文を含む会話＝文脈・経緯」を保存する場所という役割分担
- * （data-model.md「2026-07-11 マーカー中心アーキテクチャへの転換」参照）。
- * 「なぜそう言っていたのか」を確認したい時にここから会話を開く。
+ * Chronicle（文脈ライブラリ）。「マーカーを含む会話」だけを集めた、人間が過去を読み返すための層
+ * （5オブジェクト定義：docs/data-model.md「0. 設計思想」）。
  * 最新マーカー日時の降順＝最近文脈を書き足した会話が上に来る。
+ *
+ * 【v2.1 認知OSへの改訂（2026-07-12）】Realm未割当のマーカーは、一覧の先頭に
+ * 「整理待ち N」という一時セクションとして表示する（タップでS6の該当マーカーへジャンプし、
+ * そこでRealmを選べる）。最後の1件が割当された瞬間、セクションごと自然に消える。
+ * 未割当の置き場を別画面（旧Arca画面）に持たない、というピキさん確定方針。
+ * 詳細：C:\Users\user\.claude\plans\parsed-enchanting-dream.md「2026-07-12 v2.1 認知OSへの改訂」
  */
 
 import { Redirect, useRouter } from 'expo-router';
@@ -42,18 +42,33 @@ interface ChronicleRow {
   lastMarkerAt: string;
 }
 
+interface UnassignedMarker {
+  id: string;
+  conversationId: string;
+  text: string;
+}
+
 export default function ChroniclesScreen() {
   const { session, loading } = useAuth();
   const router = useRouter();
   const [rows, setRows] = useState<ChronicleRow[] | null>(null);
+  const [unassigned, setUnassigned] = useState<UnassignedMarker[]>([]);
 
   useEffect(() => {
     if (!session) return;
     (async () => {
-      const { data } = await supabase
-        .from('markers')
-        .select('conversation_id, created_at, conversations(id, title, source)')
-        .eq('status', 'confirmed');
+      const [{ data }, { data: unassignedRows }] = await Promise.all([
+        supabase
+          .from('markers')
+          .select('conversation_id, created_at, conversations(id, title, source)')
+          .eq('status', 'confirmed'),
+        supabase
+          .from('markers')
+          .select('id, conversation_id, quoted_text, edited_text')
+          .eq('status', 'confirmed')
+          .is('project_id', null)
+          .order('created_at', { ascending: false }),
+      ]);
 
       const byConversation = new Map<string, ChronicleRow>();
       for (const row of (data as unknown as MarkerRow[]) ?? []) {
@@ -75,6 +90,13 @@ export default function ChroniclesScreen() {
       }
 
       setRows([...byConversation.values()].sort((a, b) => (a.lastMarkerAt < b.lastMarkerAt ? 1 : -1)));
+      setUnassigned(
+        (unassignedRows ?? []).map((m) => ({
+          id: m.id,
+          conversationId: m.conversation_id,
+          text: (m.edited_text as string | null) ?? m.quoted_text,
+        })),
+      );
     })();
   }, [session]);
 
@@ -85,6 +107,26 @@ export default function ChroniclesScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <HomeLink />
         <ThemedText type="subtitle">Chronicle</ThemedText>
+
+        {/* Realm未割当マーカーの一時セクション。0件になると消える（v2.1） */}
+        {unassigned.length > 0 && (
+          <ThemedView style={styles.pendingSection} testID="unassigned-section">
+            <ThemedText type="small" themeColor="textSecondary">
+              整理待ち {unassigned.length}
+            </ThemedText>
+            {unassigned.map((m) => (
+              <Pressable
+                key={m.id}
+                onPress={() =>
+                  router.push({ pathname: '/conversation/[id]', params: { id: m.conversationId, markerId: m.id } })
+                }
+                testID={`unassigned-${m.id}`}
+              >
+                <ThemedText numberOfLines={1}>{m.text}</ThemedText>
+              </Pressable>
+            ))}
+          </ThemedView>
+        )}
 
         {rows === null ? (
           <ActivityIndicator style={{ marginTop: Spacing.five }} />
@@ -123,4 +165,5 @@ const styles = StyleSheet.create({
     gap: Spacing.four,
   },
   row: { gap: Spacing.one },
+  pendingSection: { gap: Spacing.two, paddingBottom: Spacing.two },
 });

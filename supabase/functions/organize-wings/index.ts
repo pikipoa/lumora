@@ -31,7 +31,7 @@ const MODEL = Deno.env.get('LUMORA_AI_MODEL') ?? 'claude-sonnet-5';
 interface OrganizeResult {
   results: {
     marker_id: string;
-    wings: { name: string; icon: string }[];
+    wings: { name: string; icon: string; confidence: number }[];
   }[];
 }
 
@@ -50,14 +50,20 @@ const OUTPUT_SCHEMA = {
           marker_id: { type: 'string', description: '入力で渡されたmarker_idをそのまま返す' },
           wings: {
             type: 'array',
-            description: 'このマーカーが属するWing（章）。1〜2個、多くとも3個まで',
+            description: 'このマーカーが属するWing（章）の候補。1〜2個、多くとも3個まで',
             items: {
               type: 'object',
               additionalProperties: false,
-              required: ['name', 'icon'],
+              required: ['name', 'icon', 'confidence'],
               properties: {
                 name: { type: 'string', description: 'Wing名（本の章タイトルのような粗い単位。例: 技術スタック, 世界観）' },
                 icon: { type: 'string', description: 'Wingを象徴する絵文字1文字' },
+                confidence: {
+                  type: 'integer',
+                  // 注意：構造化出力のJSON Schemaはinteger型のminimum/maximumをサポートしない
+                  // （400 invalid_request_errorになる）。範囲はdescriptionで指示し、保存時にクランプする
+                  description: 'このマーカーがそのWingに属する確度。0〜100の整数のみ。既存Wingへの明確な一致は90以上、妥当な候補は70〜89、可能性程度は50〜69',
+                },
               },
             },
           },
@@ -85,6 +91,8 @@ Wingはタグよりずっと粗い単位です。「Supabase」「Postgres」「
 1. 既存Wing一覧から合うものを最優先で再利用する（似た章を新規に作らない）
 2. 合うものが無い場合のみ新規Wingを提案する（絵文字アイコンも1つ添える）
 3. 1マーカーにつき1〜2個、多くても3個まで。何にでも当てはまる曖昧な章を量産しない
+4. 各候補にconfidence（確度0〜100）を付ける。最終的な収納の判断はユーザーが行うため、
+   自信の無い候補を無理に高くしない（明確な一致=90以上、妥当=70〜89、可能性程度=50〜69）
 
 # このRealmの既存Wing一覧
 ${wingList}
@@ -238,6 +246,7 @@ Deno.serve(async (req: Request) => {
           marker_id: r.marker_id,
           wing_id: wingId,
           proposed_by: 'ai',
+          confidence: Math.max(0, Math.min(100, Math.round(w.confidence ?? 0))),
         });
         if (!error) wingCount++;
       }

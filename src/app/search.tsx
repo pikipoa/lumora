@@ -1,10 +1,11 @@
 /**
- * S8 横断検索画面（ux-flow-and-screens.md §2-1）。全プロジェクト・全AI横断の
- * キーワード検索＋タグ検索（confirmedタグでフィルタ）。
+ * S8 横断検索画面（Lumora最大の価値・知識発掘のコア体験）。
+ * 全プロジェクト・全AI横断のキーワード検索。pg_trgmベースのRPC `search_conversations`
+ * （会話タイトル/本文を横断）。
  *
- * キーワード検索はpg_trgmベースのRPC `search_conversations`（会話タイトル/本文/要約を横断）。
- * タグ検索は`ConversationTag`のconfirmed行のみを対象にする（横断検索の粗い絞り込みという
- * 役割分担はdata-model.md「論点F」の通り）。両方指定時はAND（両方に一致する会話のみ）。
+ * 【v2.1 認知OSへの改訂（2026-07-12）】タグ絞り込みチップ（ConversationTagベース）は削除した。
+ * TagはAIの理解構造（検索・推論・関連発見のためにAIが内部で使う）であり、UIに常時表示しない
+ * （5オブジェクト定義：docs/data-model.md「0. 設計思想」）。
  */
 
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -33,81 +34,26 @@ interface ResultRow {
   snippet: string;
 }
 
-interface TagOption {
-  id: string;
-  name: string;
-  tag_type: 'topic' | 'concept';
-}
-
 export default function SearchScreen() {
   const { session, loading } = useAuth();
   const router = useRouter();
   const { q: initialQuery } = useLocalSearchParams<{ q?: string }>();
 
   const [query, setQuery] = useState(initialQuery ?? '');
-  const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
-  const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
   const [results, setResults] = useState<ResultRow[] | null>(null);
   const [searching, setSearching] = useState(false);
 
-  useEffect(() => {
-    if (!session) return;
-    (async () => {
-      const { data } = await supabase
-        .from('conversation_tags')
-        .select('tags(id, name, tag_type)')
-        .eq('status', 'confirmed');
-      const seen = new Map<string, TagOption>();
-      for (const row of data ?? []) {
-        const tag = (row as unknown as { tags: TagOption }).tags;
-        if (tag) seen.set(tag.id, tag);
-      }
-      setTagOptions([...seen.values()]);
-    })();
-  }, [session]);
-
   const runSearch = useCallback(async () => {
     const trimmed = query.trim();
-    if (!trimmed && !selectedTagId) {
+    if (!trimmed) {
       setResults(null);
       return;
     }
     setSearching(true);
-
-    let keywordMatches: ResultRow[] | null = null;
-    if (trimmed) {
-      const { data } = await supabase.rpc('search_conversations', { search_query: trimmed });
-      keywordMatches = (data as ResultRow[]) ?? [];
-    }
-
-    let tagMatches: ResultRow[] | null = null;
-    if (selectedTagId) {
-      const { data } = await supabase
-        .from('conversation_tags')
-        .select('conversations(id, title, source, imported_at)')
-        .eq('status', 'confirmed')
-        .eq('tag_id', selectedTagId);
-      tagMatches = (data ?? [])
-        .map((row) => (row as unknown as { conversations: ResultRow | null }).conversations)
-        .filter((c): c is ResultRow => !!c)
-        .map((c) => ({ ...c, snippet: c.title }));
-    }
-
-    let combined: ResultRow[];
-    if (keywordMatches && tagMatches) {
-      const tagIds = new Set(tagMatches.map((r) => r.id));
-      combined = keywordMatches.filter((r) => tagIds.has(r.id));
-    } else {
-      combined = keywordMatches ?? tagMatches ?? [];
-    }
-
-    setResults(combined);
+    const { data } = await supabase.rpc('search_conversations', { search_query: trimmed });
+    setResults((data as ResultRow[]) ?? []);
     setSearching(false);
-  }, [query, selectedTagId]);
-
-  useEffect(() => {
-    runSearch();
-  }, [selectedTagId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query]);
 
   useEffect(() => {
     if (initialQuery) runSearch();
@@ -135,21 +81,6 @@ export default function SearchScreen() {
             <ThemedText style={styles.smallButtonText}>検索</ThemedText>
           </Pressable>
         </ThemedView>
-
-        {tagOptions.length > 0 && (
-          <ThemedView style={styles.tagWrap}>
-            {tagOptions.map((t) => (
-              <Pressable
-                key={t.id}
-                style={[styles.chip, selectedTagId === t.id && styles.chipActive]}
-                onPress={() => setSelectedTagId(selectedTagId === t.id ? null : t.id)}
-                testID={`filter-tag-${t.id}`}
-              >
-                <ThemedText type="small">{t.name}</ThemedText>
-              </Pressable>
-            ))}
-          </ThemedView>
-        )}
 
         {searching && <ActivityIndicator style={{ marginTop: Spacing.three }} />}
 
@@ -203,15 +134,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.two,
   },
-  tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
-  chip: {
-    borderRadius: Spacing.four,
-    borderWidth: 1,
-    borderColor: '#999',
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.half,
-  },
-  chipActive: { borderColor: '#208AEF', backgroundColor: '#208AEF22' },
   card: { borderRadius: Spacing.two, padding: Spacing.three, gap: Spacing.one, backgroundColor: '#F0F0F3' },
   smallButton: {
     backgroundColor: '#208AEF',

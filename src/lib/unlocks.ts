@@ -80,12 +80,8 @@ export interface CelebrationCard {
   body: string;
 }
 
-export const ARCA_CELEBRATION: CelebrationCard = {
-  emoji: '✨',
-  title: 'Arca',
-  body: '未来へ残したい知識を保管する宝箱が開かれました。',
-};
-
+// v2.1（2026-07-12）：Arcaは内部概念（＝マーカーそのもの）に降格したため、Arcaの解放演出は
+// 廃止した。SeenFlagsのキー名`arcaChronicle`はAsyncStorage互換のためそのまま残している。
 export const CHRONICLE_CELEBRATION: CelebrationCard = {
   emoji: '📜',
   title: 'Chronicle',

@@ -1,10 +1,12 @@
 /**
- * S6 会話詳細。横断検索（S8）から辿り着き、本文を選択してマーカーを作る主戦場。
+ * S6 会話詳細（Chronicle本体）。横断検索（S8）から辿り着き、本文を選択してマーカーを作る主戦場。
  *
- * 【設計思想の転換（2026-07-11）】AI要約（Summary）機能は廃止した。マーカーは常に人間が
- * 手動で作成し（AIによる会話全体からの自動発見はしない）、confirmedになった時点で
- * そのまま「Arca」に追加される。タグ整理はArca側でマーカー単位のAI処理として行う。
- * 詳細：C:\Users\user\.claude\plans\parsed-enchanting-dream.md
+ * 【v2.1 認知OSへの改訂（2026-07-12）】人間の認知順序（マーカー→Realm選択→AI分析）に
+ * UIを合わせた。色タップでマーカー確定した直後、アクションバーが「Realmを選ぶ」ステップに
+ * 変わる（スキップ可）。未割当マーカーは既存ハイライトをタップすればいつでも割当できる。
+ * 会話全体タグエリア（ConversationTag）はUIから削除した（Tagは常時表示しない原則。
+ * テーブル自体は残る）。詳細：C:\Users\user\.claude\plans\parsed-enchanting-dream.md
+ * 「2026-07-12 v2.1 認知OSへの改訂」、5オブジェクト定義はdocs/data-model.md「0. 設計思想」。
  *
  * マーカーの範囲選択はStep6技術スパイクの結論（ブラウザ標準Selection/Range API）に基づく。
  * Web版はTextを`selectable`にしてブラウザのSelection APIを直接使う。ネイティブ版は
@@ -42,8 +44,6 @@ const SOURCE_LABEL: Record<string, string> = {
   perplexity: 'Perplexity',
 };
 
-const TAG_TYPE_LABEL: Record<string, string> = { topic: 'Topic', concept: 'Concept' };
-
 interface ConversationDetail {
   id: string;
   title: string;
@@ -59,20 +59,19 @@ interface MessageRow {
   seq: number;
 }
 
-interface ConversationTagRow {
-  id: string;
-  status: 'proposed' | 'confirmed' | 'rejected';
-  proposed_by: 'ai' | 'human';
-  tags: { id: string; name: string; tag_type: 'topic' | 'concept' };
-}
-
 interface MarkerRow {
   id: string;
   message_id: string;
   quoted_text: string;
   color: string | null;
   role_tag: string | null;
+  project_id: string | null;
   status: 'proposed' | 'confirmed' | 'rejected';
+}
+
+interface ProjectOption {
+  id: string;
+  name: string;
 }
 
 interface PendingSelection {
@@ -94,23 +93,22 @@ export default function ConversationDetailScreen() {
 
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
   const [messages, setMessages] = useState<MessageRow[]>([]);
-  const [conversationTags, setConversationTags] = useState<ConversationTagRow[]>([]);
   const [markers, setMarkers] = useState<MarkerRow[]>([]);
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [memo, setMemo] = useState<MemoRow | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [showRejectedTags, setShowRejectedTags] = useState(false);
-  const [newTagName, setNewTagName] = useState('');
-  const [newTagType, setNewTagType] = useState<'topic' | 'concept'>('topic');
   const [memoDraft, setMemoDraft] = useState('');
   const [memoSaved, setMemoSaved] = useState(false);
   const [pendingSelection, setPendingSelection] = useState<PendingSelection | null>(null);
   const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
+  // 色確定直後に「Realmを選ぶ」ステップを出す対象マーカー（v2.1認知フロー。スキップ可）
+  const [realmPickerMarkerId, setRealmPickerMarkerId] = useState<string | null>(null);
   const messageRefs = useRef<Record<string, View | null>>({});
 
   const load = useCallback(async () => {
     if (!id) return;
-    const [{ data: conv }, { data: msgs }, { data: cts }, { data: mks }, { data: memos }] =
+    const [{ data: conv }, { data: msgs }, { data: mks }, { data: proj }, { data: memos }] =
       await Promise.all([
         supabase
           .from('conversations')
@@ -119,20 +117,17 @@ export default function ConversationDetailScreen() {
           .single(),
         supabase.from('messages').select('id, role, content, seq').eq('conversation_id', id).order('seq'),
         supabase
-          .from('conversation_tags')
-          .select('id, status, proposed_by, tags(id, name, tag_type)')
-          .eq('conversation_id', id),
-        supabase
           .from('markers')
-          .select('id, message_id, quoted_text, color, role_tag, status')
+          .select('id, message_id, quoted_text, color, role_tag, project_id, status')
           .eq('conversation_id', id),
+        supabase.from('projects').select('id, name').order('created_at', { ascending: false }),
         supabase.from('memos').select('id, body').eq('target_type', 'conversation').eq('target_id', id).maybeSingle(),
       ]);
 
     setConversation((conv as unknown as ConversationDetail) ?? null);
     setMessages(msgs ?? []);
-    setConversationTags((cts as unknown as ConversationTagRow[]) ?? []);
     setMarkers(mks ?? []);
+    setProjects(proj ?? []);
     setMemo(memos ?? null);
     setMemoDraft(memos?.body ?? '');
     setLoading(false);
@@ -222,6 +217,9 @@ export default function ConversationDetailScreen() {
     const userId = userRes.user?.id;
     if (!userId) return;
 
+    // v2.1認知フロー：確定した直後、そのマーカーがRealm未割当なら「Realmを選ぶ」ステップへ進む
+    let nextRealmPickerId: string | null = null;
+
     if (editingMarkerId) {
       const existing = markers.find((m) => m.id === editingMarkerId);
       const quotedText = pendingSelection.text || existing?.quoted_text;
@@ -234,6 +232,7 @@ export default function ConversationDetailScreen() {
         .update({ quoted_text: quotedText, color, status: 'confirmed' })
         .eq('id', editingMarkerId);
       if (!unchanged) await recordMarkerHistory(editingMarkerId, color, 'confirmed');
+      if (existing && !existing.project_id) nextRealmPickerId = editingMarkerId;
     } else {
       const { data: created } = await supabase
         .from('markers')
@@ -248,11 +247,25 @@ export default function ConversationDetailScreen() {
         })
         .select('id')
         .single();
-      if (created) await recordMarkerHistory(created.id, color, 'confirmed');
+      if (created) {
+        await recordMarkerHistory(created.id, color, 'confirmed');
+        nextRealmPickerId = created.id;
+      }
     }
     clearNativeSelection();
     setPendingSelection(null);
     setEditingMarkerId(null);
+    setRealmPickerMarkerId(nextRealmPickerId);
+    load();
+  }
+
+  // マーカーをRealmへ収納する（v2.1：色確定直後 or 既存マーカータップ時）
+  async function assignMarkerToRealm(markerId: string, projectId: string) {
+    await supabase.from('markers').update({ project_id: projectId }).eq('id', markerId);
+    clearNativeSelection();
+    setPendingSelection(null);
+    setEditingMarkerId(null);
+    setRealmPickerMarkerId(null);
     load();
   }
 
@@ -271,50 +284,6 @@ export default function ConversationDetailScreen() {
     clearNativeSelection();
     setPendingSelection(null);
     setEditingMarkerId(null);
-  }
-
-  async function setTagStatus(ctId: string, status: 'confirmed' | 'rejected') {
-    await supabase
-      .from('conversation_tags')
-      .update({ status, confirmed_at: status === 'confirmed' ? new Date().toISOString() : null })
-      .eq('id', ctId);
-    load();
-  }
-
-  async function addTag() {
-    const name = newTagName.trim();
-    if (!name || !id) return;
-    const { data: userRes } = await supabase.auth.getUser();
-    const userId = userRes.user?.id;
-    if (!userId) return;
-
-    let { data: existingTag } = await supabase
-      .from('tags')
-      .select('id')
-      .eq('name', name)
-      .eq('tag_type', newTagType)
-      .maybeSingle();
-
-    if (!existingTag) {
-      const { data: created, error } = await supabase
-        .from('tags')
-        .insert({ name, tag_type: newTagType, user_id: userId })
-        .select('id')
-        .single();
-      if (error) return;
-      existingTag = created;
-    }
-
-    await supabase.from('conversation_tags').insert({
-      conversation_id: id,
-      tag_id: existingTag.id,
-      status: 'confirmed',
-      proposed_by: 'human',
-      confirmed_at: new Date().toISOString(),
-      user_id: userId,
-    });
-    setNewTagName('');
-    load();
   }
 
   async function saveMemo() {
@@ -375,7 +344,7 @@ export default function ConversationDetailScreen() {
     );
   }
 
-  const visibleTags = conversationTags.filter((t) => showRejectedTags || t.status !== 'rejected');
+  const realmPickerMarker = markers.find((m) => m.id === realmPickerMarkerId) ?? null;
 
   return (
     <ThemedView style={styles.container}>
@@ -394,76 +363,6 @@ export default function ConversationDetailScreen() {
         </ThemedText>
 
         <ThemedText type="subtitle">{conversation.title}</ThemedText>
-
-        {/* タグエリア */}
-        <ThemedView type="backgroundElement" style={styles.section}>
-          <ThemedView style={styles.rowBetween}>
-            <ThemedText type="smallBold">タグ</ThemedText>
-            <Pressable onPress={() => setShowRejectedTags((v) => !v)}>
-              <ThemedText type="small" themeColor="textSecondary">
-                {showRejectedTags ? '却下履歴を隠す' : '却下履歴を見る'}
-              </ThemedText>
-            </Pressable>
-          </ThemedView>
-
-          <ThemedView style={styles.tagWrap}>
-            {visibleTags.map((ct) => (
-              <ThemedView
-                key={ct.id}
-                style={[
-                  styles.chip,
-                  ct.status === 'confirmed' && styles.chipConfirmed,
-                  ct.status === 'proposed' && styles.chipProposed,
-                  ct.status === 'rejected' && styles.chipRejected,
-                ]}
-              >
-                <ThemedText type="small">
-                  {TAG_TYPE_LABEL[ct.tags.tag_type]}: {ct.tags.name}
-                </ThemedText>
-                {ct.status === 'proposed' && (
-                  <ThemedView style={styles.chipActions}>
-                    <Pressable onPress={() => setTagStatus(ct.id, 'confirmed')} testID={`tag-approve-${ct.id}`}>
-                      <ThemedText type="small">✓</ThemedText>
-                    </Pressable>
-                    <Pressable onPress={() => setTagStatus(ct.id, 'rejected')} testID={`tag-reject-${ct.id}`}>
-                      <ThemedText type="small">✕</ThemedText>
-                    </Pressable>
-                  </ThemedView>
-                )}
-                {ct.status === 'confirmed' && (
-                  <Pressable onPress={() => setTagStatus(ct.id, 'rejected')} testID={`tag-unconfirm-${ct.id}`}>
-                    <ThemedText type="small">✕</ThemedText>
-                  </Pressable>
-                )}
-                {ct.status === 'rejected' && (
-                  <Pressable onPress={() => setTagStatus(ct.id, 'confirmed')} testID={`tag-restore-${ct.id}`}>
-                    <ThemedText type="small">戻す</ThemedText>
-                  </Pressable>
-                )}
-              </ThemedView>
-            ))}
-          </ThemedView>
-
-          <ThemedView style={styles.row}>
-            <TextInput
-              style={styles.tagInput}
-              placeholder="＋タグを追加"
-              value={newTagName}
-              onChangeText={setNewTagName}
-              onSubmitEditing={addTag}
-              testID="new-tag-input"
-            />
-            <Pressable
-              style={styles.smallButtonOutline}
-              onPress={() => setNewTagType(newTagType === 'topic' ? 'concept' : 'topic')}
-            >
-              <ThemedText type="small">{TAG_TYPE_LABEL[newTagType]}</ThemedText>
-            </Pressable>
-            <Pressable style={styles.smallButton} onPress={addTag} testID="add-tag-button">
-              <ThemedText style={styles.smallButtonText}>追加</ThemedText>
-            </Pressable>
-          </ThemedView>
-        </ThemedView>
 
         {/* 本文（マーカーハイライト＋範囲選択） */}
         <ThemedView type="backgroundElement" style={styles.section}>
@@ -554,6 +453,61 @@ export default function ConversationDetailScreen() {
                 <ThemedText type="small">キャンセル</ThemedText>
               </Pressable>
             </ThemedView>
+
+            {/* 既存マーカーがRealm未割当なら、色を選び直さなくてもこの場で収納できる（整理待ちからのジャンプ先） */}
+            {editingMarker && !editingMarker.project_id && projects.length > 0 && (
+              <>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Realmへ収納：
+                </ThemedText>
+                <ThemedView style={styles.tagWrap}>
+                  {projects.map((p) => (
+                    <Pressable
+                      key={p.id}
+                      style={styles.chip}
+                      {...preventSelectionLoss}
+                      onPress={() => assignMarkerToRealm(editingMarker.id, p.id)}
+                      testID={`assign-realm-${p.id}`}
+                    >
+                      <ThemedText type="small">{p.name}</ThemedText>
+                    </Pressable>
+                  ))}
+                </ThemedView>
+              </>
+            )}
+          </ThemedView>
+        )}
+
+        {/* v2.1認知フロー：色確定の直後に「Realmを選ぶ」ステップ（スキップ可） */}
+        {!pendingSelection && realmPickerMarker && (
+          <ThemedView type="backgroundElement" style={styles.actionBar} testID="realm-picker-bar">
+            <ThemedText type="small">
+              このマーカーをどのRealmへ収納しますか？「{(realmPickerMarker.quoted_text ?? '').slice(0, 30)}」
+            </ThemedText>
+            <ThemedView style={styles.tagWrap}>
+              {projects.map((p) => (
+                <Pressable
+                  key={p.id}
+                  style={styles.chip}
+                  onPress={() => assignMarkerToRealm(realmPickerMarker.id, p.id)}
+                  testID={`realm-picker-${p.id}`}
+                >
+                  <ThemedText type="small">{p.name}</ThemedText>
+                </Pressable>
+              ))}
+              {projects.length === 0 && (
+                <ThemedText type="small" themeColor="textSecondary">
+                  Realmがまだありません（Realm一覧から作成できます）
+                </ThemedText>
+              )}
+              <Pressable
+                style={styles.smallButtonOutline}
+                onPress={() => setRealmPickerMarkerId(null)}
+                testID="realm-picker-later"
+              >
+                <ThemedText type="small">後で</ThemedText>
+              </Pressable>
+            </ThemedView>
           </ThemedView>
         )}
 
@@ -611,7 +565,6 @@ const styles = StyleSheet.create({
     borderColor: '#208AEF',
   },
   swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: '#00000022' },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   messageRow: { gap: Spacing.half, paddingVertical: Spacing.one },
   tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   chip: {
@@ -623,18 +576,6 @@ const styles = StyleSheet.create({
     borderColor: '#999',
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
-  },
-  chipProposed: { borderStyle: 'dashed' },
-  chipConfirmed: { borderStyle: 'solid', borderColor: '#208AEF' },
-  chipRejected: { opacity: 0.5 },
-  chipActions: { flexDirection: 'row', gap: Spacing.one },
-  tagInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: Spacing.two,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
   },
   textArea: {
     borderWidth: 1,

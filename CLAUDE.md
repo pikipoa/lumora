@@ -38,7 +38,7 @@
 
 **認証・マルチユーザー対応は最初から実装する**：Phase1の実利用者が1人であっても、user_id列とRLS（行レベルセキュリティ）は初期実装から組み込む。後から追加すると既存データのバックフィルと全クエリの見直しが必要になり、根幹的な変更になるため（詳細：`data-model.md`「4. 認証とマルチユーザー対応」）。新しいテーブルを追加する際は、そのテーブルが「所有者を直接持つべきか」「親を辿って判定すべきか」を必ず判断してから実装すること。
 
-**ブランド命名はUI表示層のみに適用し、データモデルには持ち込まない**：アプリ名はLumora、UI表示名はProject→Realm、Theme→Wing、Conversation→Chronicle、`proposed`状態→**Ore**、`confirmed`/`edited`状態→Arcaという対応（詳細：`VISION.md`「8. ブランド世界観・命名」）。**Beaconは`proposed`状態のラベルではない**（検討初期の案から訂正済み）。Beaconは「AIによる関連発見機能」を指す言葉としてPhase2バックログに予約されているため、Phase1の実装でBeaconという語を`proposed`状態の意味で使わないこと。データベースのテーブル名・フィールド名・API・変数名は引き続き`Project`/`Theme`/`Conversation`/`Tag`/`Marker`/`Summary`/`status: proposed/confirmed`のまま実装すること。ブランド名の変換はフロントエンドの表示コンポーネント（i18n/文言定義ファイル等）に閉じ込め、バックエンド・DB層のコードにブランド名を持ち込まない。
+**ブランド命名はUI表示層のみに適用し、データモデルには持ち込まない**：アプリ名はLumora、UI表示名はProject→Realm、Theme→Wing、Conversation→Chronicle、`proposed`状態→**Ore**、`confirmed`/`edited`状態→Arcaという対応（詳細：`VISION.md`「8. ブランド世界観・命名」）。**v2.1（2026-07-12）：Arcaは内部概念**（＝confirmedマーカーそのもの。マーカーを引いた瞬間に生成される）。UIに「Arca」という語を積極的に出さない（Arca専用画面・ホームカードは廃止済み）。**Beaconは`proposed`状態のラベルではない**（検討初期の案から訂正済み）。Beaconは「AIによる関連発見機能」を指す言葉としてPhase2バックログに予約されているため、Phase1の実装でBeaconという語を`proposed`状態の意味で使わないこと。データベースのテーブル名・フィールド名・API・変数名は引き続き`Project`/`Theme`/`Conversation`/`Tag`/`Marker`/`Summary`/`status: proposed/confirmed`のまま実装すること。ブランド名の変換はフロントエンドの表示コンポーネント（i18n/文言定義ファイル等）に閉じ込め、バックエンド・DB層のコードにブランド名を持ち込まない。
 
 **タグは3種類、主戦場はMarker単位**：Topic/Concept（自由語彙、`Tag.tag_type`で区別）とRole（固定enum、`Marker.role_tag`）は別の実装。タグ付けの主なUIフローは会話（Conversation/Chronicle）全体ではなく個々の発見物（Marker）単位に対して行う。`ConversationTag`（会話全体への大まかなタグ）と`MarkerTag`（発見物単位の正確なタグ）は両方実装し、削除・統合しないこと（詳細：`data-model.md`「論点F」）。
 
@@ -62,7 +62,8 @@
 ## 2. 実装上の判断原則
 
 ### 2-1. Proposed/Confirmedの状態管理は妥協しない
-- Tag（ConversationTag/MarkerTag両方）はAI提案分について必ず`proposed → confirmed/rejected`の状態遷移を経る。Markerは2026-07-11の転換によりAIが提案することがなくなったため常に`proposed_by: human`＝作成と同時にconfirmed扱いとなる（`confirmed`＝Arca追加）。Summaryは同転換で機能自体を廃止した（詳細：`data-model.md`）
+- Tag（MarkerTag）・Wing（MarkerWing）はAI提案分について必ず`proposed → confirmed/rejected`の状態遷移を経る。Markerは2026-07-11の転換によりAIが提案することがなくなったため常に`proposed_by: human`＝作成と同時にconfirmed扱いとなる（`confirmed`＝Arca、v2.1以降Arcaは内部概念）。Summaryは同転換で機能自体を廃止した（詳細：`data-model.md`）
+- **v2.1でのレビューUIの形（2026-07-12）**：Tagは常時表示しないが、レビュー対象からは隠さない。Realm詳細の「AI分析結果を見る」パネルで✓確定/✕却下/リネーム/追加ができる（ユーザーがやっているのはタグ編集ではなく「AIがこの知識を正しく理解できているかの確認」）。WingはAIが確度付き候補（`confidence` 0-100）を提示し、ユーザーが採用して初めてconfirmedになる。学習型の自動収納はPhase2バックログ（`VISION.md` 9章）
 - **一括承認ボタンは実装しない**（Phase1のNon-goalとして明示的に決定済み）。「全部確認する手間を減らしたい」という誘惑があっても、仕様書の決定を優先する
 - rejectedは論理削除として扱い、物理削除しない（判断履歴として保持する設計思想のため）
 

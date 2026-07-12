@@ -22,7 +22,6 @@ export default function RootLayout() {
           <Stack.Screen name="projects" options={{ title: 'Realm' }} />
           <Stack.Screen name="projects/[id]" options={{ title: 'Realm' }} />
           <Stack.Screen name="search" options={{ title: '横断検索' }} />
-          <Stack.Screen name="highlights" options={{ title: 'Arca' }} />
           <Stack.Screen name="chronicles" options={{ title: 'Chronicle' }} />
         </Stack>
       </AuthProvider>

@@ -1,16 +1,18 @@
 /**
  * ホーム画面。docs/DESIGN.md（2026-07-11制定）準拠の再設計版。
  *
- * 設計判断（レビュー承認済み・2026-07-11）：
+ * 【v2.1 認知OSへの改訂（2026-07-12）】Arcaは内部概念に降格し（＝マーカーそのもの。
+ * 5オブジェクト定義：docs/data-model.md「0. 設計思想」）、Arca画面・ホームのArcaカードは
+ * 削除した。統計行はChronicle/Realmの2つ。解放演出もChronicle/Realmのみ。
+ *
+ * 設計判断（レビュー承認済み・2026-07-11、v2.1で一部改訂）：
  * - 一次要素は検索のみ（下線だけの入力欄。ボタンなし、Enterで検索）。
- *   情報階層 Search → Marker → Arca → Wing → Realm の起点が検索であるため、
+ *   認知フロー Import → Search → マーカー → Realm の起点が検索であるため、
  *   ホームで最初に視線が落ちる場所を検索以外にしない
- * - 解放済みの行き先は「Arca 4 · Chronicle 1 · Realm 1」のタイポグラフィ行のみ
- *   （カード・枠・絵文字・説明文なし。数字が大きくラベルが小さい）。
+ * - 解放済みの行き先はタイポグラフィ行のみ（カード・枠・絵文字・説明文なし）。
  *   解放されるたびにこの行に単語が増える＝「知識が育つほどUIも育つ」の表現
  * - インポート/Inboxは最下部の小さなテキストリンク
  * - メールアドレス表示・常時ログアウトは削除。ログアウトはワードマーク長押し
- * - 解放判定ロジック（unlocks.ts・AsyncStorage既読フラグ）は前実装のまま
  */
 
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
@@ -27,7 +29,6 @@ import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import {
-  ARCA_CELEBRATION,
   CHRONICLE_CELEBRATION,
   REALM_CELEBRATION,
   getSeenFlags,
@@ -61,7 +62,7 @@ export default function HomeScreen() {
 
         const newlyUnlocked: CelebrationCard[] = [];
         if (nextCounts.hasConfirmedMarker && !seen.arcaChronicle) {
-          newlyUnlocked.push(ARCA_CELEBRATION, CHRONICLE_CELEBRATION);
+          newlyUnlocked.push(CHRONICLE_CELEBRATION);
           await markSeen(session.user.id, 'arcaChronicle');
         }
         if (nextCounts.hasRealmAssignedMarker && !seen.realm) {
@@ -90,10 +91,8 @@ export default function HomeScreen() {
     router.push({ pathname: '/search', params: { q: trimmed } });
   }
 
-  const stats: { label: string; value: number; href: '/highlights' | '/chronicles' | '/projects'; testID: string }[] =
-    [];
+  const stats: { label: string; value: number; href: '/chronicles' | '/projects'; testID: string }[] = [];
   if (counts && seenFlags.arcaChronicle) {
-    stats.push({ label: 'Arca', value: counts.markerCount, href: '/highlights', testID: 'arca-card' });
     stats.push({ label: 'Chronicle', value: counts.chronicleCount, href: '/chronicles', testID: 'chronicle-card' });
   }
   if (counts && seenFlags.realm) {

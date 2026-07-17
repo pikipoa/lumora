@@ -131,3 +131,5 @@ Phase1機能の依存関係に基づく（詳細：`ux-flow-and-screens.md`関�
 - `data-model.md`：データモデル定義
 - `ux-flow-and-screens.md`：UXフロー・画面遷移
 - `infra.md`：開発インフラ（GitHub/Vercel/Sentry等）の採否判断
+- `settings-ia.md`：歯車アイコン設定画面の情報設計（Profile/Knowledge/Integrations/Guide、2026-07-13構想）
+- `search-spec.md`：横断検索の仕様（検索の目的・原則・検索対象の基準・フォールバックの考え方・Beaconとの役割分担。具体的なアルゴリズム・SQL実装は対象外、2026-07-13確定）

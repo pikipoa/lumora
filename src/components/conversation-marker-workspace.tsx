@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -356,6 +357,50 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
   const realmPickerMarker = markers.find((m) => m.id === realmPickerMarkerId) ?? null;
 
+  const colorToolbarContent =
+    pendingSelection && selectionRect ? (
+      <View
+        style={[
+          styles.floatingToolbar,
+          {
+            top: Math.max(Spacing.two, selectionRect.top - 44),
+            left: Math.min(
+              Math.max(Spacing.two, selectionRect.left + selectionRect.width / 2 - 115),
+              windowWidth - 230 - Spacing.two,
+            ),
+          },
+        ]}
+        testID="marker-color-toolbar"
+      >
+        <ThemedView type="backgroundElement" style={styles.toolbarInner}>
+          {MARKER_COLORS.map((c) => (
+            <Pressable
+              key={c.key}
+              style={[styles.swatchSmall, { backgroundColor: c.hex }]}
+              {...preventSelectionLoss}
+              onPress={() => confirmPendingMarker(c.key)}
+              testID={`marker-color-${c.key}`}
+            />
+          ))}
+          {editingMarker && (
+            <Pressable
+              style={styles.toolbarReject}
+              {...preventSelectionLoss}
+              onPress={() => rejectMarker(editingMarker.id)}
+              testID="reject-marker-button"
+            >
+              <ThemedText type="small">✕</ThemedText>
+            </Pressable>
+          )}
+        </ThemedView>
+      </View>
+    ) : null;
+
+  const colorToolbar =
+    colorToolbarContent && Platform.OS === 'web' && typeof document !== 'undefined'
+      ? createPortal(colorToolbarContent, document.body)
+      : colorToolbarContent;
+
   return (
     <>
       <ThemedText type="small" themeColor="textSecondary">
@@ -443,44 +488,13 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       </ThemedView>
 
       {/* Edit Menu/Selection Toolbar風：選択範囲のすぐ近くに浮かぶ、色だけの最小ツールバー。
-          説明文やキャンセルボタンは持たない（選択を解いて他をタップすれば自然にキャンセルになる） */}
-      {pendingSelection && selectionRect && (
-        <View
-          style={[
-            styles.floatingToolbar,
-            {
-              top: Math.max(Spacing.two, selectionRect.top - 44),
-              left: Math.min(
-                Math.max(Spacing.two, selectionRect.left + selectionRect.width / 2 - 115),
-                windowWidth - 230 - Spacing.two,
-              ),
-            },
-          ]}
-          testID="marker-color-toolbar"
-        >
-          <ThemedView type="backgroundElement" style={styles.toolbarInner}>
-            {MARKER_COLORS.map((c) => (
-              <Pressable
-                key={c.key}
-                style={[styles.swatchSmall, { backgroundColor: c.hex }]}
-                {...preventSelectionLoss}
-                onPress={() => confirmPendingMarker(c.key)}
-                testID={`marker-color-${c.key}`}
-              />
-            ))}
-            {editingMarker && (
-              <Pressable
-                style={styles.toolbarReject}
-                {...preventSelectionLoss}
-                onPress={() => rejectMarker(editingMarker.id)}
-                testID="reject-marker-button"
-              >
-                <ThemedText type="small">✕</ThemedText>
-              </Pressable>
-            )}
-          </ThemedView>
-        </View>
-      )}
+          説明文やキャンセルボタンは持たない（選択を解いて他をタップすれば自然にキャンセルになる）。
+          検索結果のボトムシート（conversation-peek-sheet.tsx）はスライドインアニメーションのため
+          祖先要素に恒常的なtransformが残る。position:'fixed'はtransformを持つ祖先があると
+          ビューポートではなくその祖先基準になってしまうCSSの仕様があり、ツールバーが選択位置と
+          無関係な場所にずれる不具合の原因になっていた。document.bodyへポータルで直接描画することで
+          祖先のtransformの影響を受けないようにする */}
+      {colorToolbar}
 
       {/* 既存マーカーがRealm未割当なら、色を選び直さなくてもこの場で収納できる（整理待ちからのジャンプ先） */}
       {pendingSelection && editingMarker && !editingMarker.project_id && projects.length > 0 && (

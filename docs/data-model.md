@@ -237,6 +237,17 @@ Memo {
 
 会話ごとのAI要約機能は、情報フローの転換（VISION.md 3-3）に伴い廃止した。`summaries`テーブルは物理削除済み（マイグレーション`20260711000003_marker_centric_pivot.sql`）。Realm/Arcaがマーカー中心になったため、会話全体の要約という単位は不要と判断した。
 
+### UnlockFlag（進化するホーム画面の解放演出・既読フラグ）
+```
+UnlockFlag {
+  user_id: uuid   // primary key
+  arca_chronicle: boolean   // Chronicle解放演出を見たか
+  realm: boolean             // Realm解放演出を見たか
+  updated_at: datetime
+}
+```
+**不具合修正（決定・2026-07-13）**：元はAsyncStorage（Web版はlocalStorage、端末/オリジン単位）に保存していたが、これはアカウント単位で永続すべき状態を端末単位の一時的な保存先に置いていた設計ミスだった。ログアウト→再ログイン（別ブラウザ・別デバイス・localStorage消去等）のたびに既読フラグだけが消え、Realm等の解放演出が毎回再表示される不具合の原因になっていたため、`unlock_flags`テーブル（マイグレーション`20260713000001_unlock_flags.sql`）へ移した。
+
 ### AiJob（AI分析ジョブ）
 ```
 AiJob {

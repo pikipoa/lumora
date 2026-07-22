@@ -44,6 +44,8 @@
 | 分類 | 具体例 | フェーズ |
 |---|---|---|
 | インポートされた会話本文 | ChatGPT/Claude/Gemini/Perplexity（`conversations.title`, `messages.content`） | Phase1 |
+| インポートされた汎用文書 | Markdown/テキストファイル（`source: "document"`、2026-07-14追加。`import-spec.md`5-1参照） | Phase1 |
+| インポートされた開発セッション記録 | Claude Code CLIの`.jsonl`（`source: "claude_code"`、2026-07-21追加。`import-spec.md`5-2参照） | Phase1 |
 | ユーザーが書いた注釈 | メモ（`memos.body`） | Phase2以降 |
 | ユーザーが編集した知識 | マーカー説明（`markers.edited_text ?? markers.quoted_text`） | Phase2以降 |
 

@@ -65,6 +65,8 @@ export default function ImportScreen() {
           <ThemedText type="small">{t.importScreen.formatGemini}</ThemedText>
           <ThemedText type="small">{t.importScreen.formatClaude}</ThemedText>
           <ThemedText type="small">{t.importScreen.formatPerplexity}</ThemedText>
+          <ThemedText type="small">{t.importScreen.formatDocument}</ThemedText>
+          <ThemedText type="small">{t.importScreen.formatClaudeCode}</ThemedText>
         </ThemedView>
 
         <Pressable

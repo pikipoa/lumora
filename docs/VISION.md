@@ -112,7 +112,7 @@ Import → Search → マーカー（＝Arca生成）→ Realm選択 → Realm�
 
 | 機能 | 内容 |
 |---|---|
-| インポート | ChatGPT / Gemini / Claude / Perplexityの会話取り込み |
+| インポート | ChatGPT / Gemini / Claude / Perplexityの会話取り込み、汎用Markdown/テキスト文書の取り込み（2026-07-14追加）、およびClaude Code CLIセッション記録（`.jsonl`）の取り込み（2026-07-21追加、`import-spec.md`5-1/5-2参照） |
 | 横断検索 | 複数AI・複数プロジェクトを跨いだキーワード検索。**知識発掘の起点となる最重要機能**（3-3参照、詳細仕様は`search-spec.md`） |
 | マーカー作成 | 人間が横断検索→会話本文を選択して手動作成（5色）。色選択＝確定操作 |
 | AIタグ整理 | Arcaに追加済み（confirmed）だが未タグのマーカー群に対してのみ、`proposed`(Ore)状態でTopic/Conceptタグを提案。人間が承認/却下 |

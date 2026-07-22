@@ -37,6 +37,8 @@ export const ja = {
     gemini: 'Gemini',
     claude: 'Claude',
     perplexity: 'Perplexity',
+    document: 'ドキュメント',
+    claude_code: 'Claude Code',
   } as Record<string, string>,
 
   common: {
@@ -81,6 +83,8 @@ export const ja = {
     formatGemini: '・Gemini：Google TakeoutのZIP（「My Activity」→「Gemini Apps」、JSON形式を指定）',
     formatClaude: '・Claude：公式エクスポートのZIP（conversations.json）',
     formatPerplexity: '・Perplexity：個別スレッドのMarkdownファイル',
+    formatDocument: '・その他のメモ/ドキュメント：Markdown（.md）・テキスト（.txt）ファイル',
+    formatClaudeCode: '・Claude Code：セッション記録（.jsonl）',
     pickFile: 'ファイルを選択してインポート',
     parsing: (fileName: string) => `${fileName} を解析中…`,
     saving: (done: number, total: number) => `保存中… ${done} / ${total} 件`,

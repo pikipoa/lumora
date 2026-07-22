@@ -20,6 +20,10 @@ export function detectFormat(file: ImportFile): DetectResult {
     return detectRawJson(safeDecode(file.bytes), file.name);
   }
 
+  if (lower.endsWith('.jsonl')) {
+    return { kind: 'claude_code', jsonl: safeDecode(file.bytes), fileName: file.name };
+  }
+
   if (lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.txt')) {
     return { kind: 'perplexity', markdown: safeDecode(file.bytes), fileName: file.name };
   }
@@ -37,7 +41,7 @@ export function detectFormat(file: ImportFile): DetectResult {
     kind: 'unsupported',
     reason: `対応していないファイル形式です（${file.name}）`,
     guidance:
-      '対応形式：ChatGPT/ClaudeのエクスポートZIP（conversations.json）、Google TakeoutのZIP（JSON形式）、PerplexityのMarkdownファイル。',
+      '対応形式：ChatGPT/ClaudeのエクスポートZIP（conversations.json）、Google TakeoutのZIP（JSON形式）、PerplexityのMarkdownファイル、Claude CodeのセッションJSONL、その他Markdown/テキスト文書。',
   };
 }
 

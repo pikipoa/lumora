@@ -3,7 +3,7 @@
  * 各社の生データ構造の違いはパーサーで吸収し、アプリ本体はこのモデルしか見ない。
  */
 
-export type Source = 'chatgpt' | 'gemini' | 'claude' | 'perplexity';
+export type Source = 'chatgpt' | 'gemini' | 'claude' | 'perplexity' | 'document' | 'claude_code';
 
 export interface ParsedMessage {
   role: 'user' | 'assistant';
@@ -63,4 +63,5 @@ export type DetectResult =
   | { kind: 'claude'; conversationsJson: string }
   | { kind: 'gemini'; activityJsons: string[]; warnings: string[] }
   | { kind: 'perplexity'; markdown: string; fileName: string }
+  | { kind: 'claude_code'; jsonl: string; fileName: string }
   | { kind: 'unsupported'; reason: string; guidance: string };

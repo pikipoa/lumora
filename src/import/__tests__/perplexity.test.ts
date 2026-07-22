@@ -37,12 +37,15 @@ describe('parsePerplexity', () => {
     expect(assistant.content).not.toContain('[1]:');
   });
 
-  test('Q/A構造が読めないファイルは全体を1メッセージとしてフォールバックする', () => {
+  test('Q/A構造（見出し）が無いファイルは汎用ドキュメント（source: document）として取り込む', () => {
     const result = parsePerplexity('ただのテキスト。見出しなし。', 'note.md');
 
+    expect(result.source).toBe('document');
+    expect(result.conversations[0].source).toBe('document');
     expect(result.conversations[0].messages).toHaveLength(1);
-    expect(result.conversations[0].messages[0].role).toBe('assistant');
-    expect(result.warnings.some((w) => w.message.includes('フォールバック') || w.message.includes('1メッセージ'))).toBe(true);
+    expect(result.conversations[0].messages[0].role).toBe('user');
+    expect(result.conversations[0].messages[0].content).toBe('ただのテキスト。見出しなし。');
+    expect(result.warnings.some((w) => w.message.includes('汎用ドキュメント'))).toBe(true);
   });
 
   test('タイトル見出しが無い場合はファイル名をタイトルにする', () => {

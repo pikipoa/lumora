@@ -75,7 +75,7 @@ Theme {
 Conversation {
   id: uuid
   user_id: uuid              // 所有者（Inbox状態でもproject_id経由せず判定できるよう直接保持）
-  source: "chatgpt" | "gemini" | "claude" | "perplexity"
+  source: "chatgpt" | "gemini" | "claude" | "perplexity" | "document" | "claude_code"
   source_conversation_id: string | null
   title: string
   project_id: uuid | null    // null = 未分類（Inbox）
@@ -88,6 +88,10 @@ Conversation {
   held_at: datetime | null   // 非null = 保留中（一覧から除外）。実装確定：下記参照
 }
 ```
+
+**`source: "document"`の追加（決定・2026-07-14）**：`.md`/`.txt`ファイルはPerplexityパーサー（`src/import/parsers/perplexity.ts`）へ渡すが、実際に`## 見出し`によるQ/A構造が見つかった場合のみ`source: "perplexity"`とし、見つからなければ汎用のMarkdown/テキスト文書（メモ・ドキュメント等）として`source: "document"`で取り込む。検索（`search-spec.md`「2章 一次情報」原則）は`conversations.title`/`messages.content`を見るだけなので、この変更だけで既存の横断検索がそのまま対象に含める。
+
+**`source: "claude_code"`の追加（決定・2026-07-21）**：ユーザー自身のClaude Code CLIセッション記録（`.jsonl`、1行1イベント）を取り込めるようにした。実データ検証により、`type:"user"`（content文字列のみ、tool_result等の配列は除外）と`type:"assistant"`の`text`ブロック（thinking/tool_useは除外）だけを会話として復元し、`type:"ai-title"`の値をタイトルに採用する（パーサー：`src/import/parsers/claudeCode.ts`）。他のエージェントAIツール（Codex CLI等）についても同じJSONL構造を持つか調査したが、この環境ではCodex CLIのローカルファイルはアプリ状態のみでセッション記録ではなく、Cursor/Cline/Aider等はこの環境に存在しないため検証できておらず、Phase1では対応していない。
 
 **`theme_id`列の削除（決定・2026-07-11）**：旧Theme（会話が属するテーマ）を指していた列だったが、Pivot-3/4以降どのコードからも書き込まれなくなっていた（会話単位のテーマ割当UIは廃止済み）。`themes`テーブルの意味をWing（Marker/Realmの章立て）へ転換したため、意味が矛盾する古いFKとして削除した。
 

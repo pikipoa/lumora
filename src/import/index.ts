@@ -6,6 +6,7 @@
 import { detectFormat } from './detect';
 import { parseChatGpt } from './parsers/chatgpt';
 import { parseClaude } from './parsers/claude';
+import { parseClaudeCode } from './parsers/claudeCode';
 import { parseGemini } from './parsers/gemini';
 import { parsePerplexity } from './parsers/perplexity';
 import type { DetectResult, ImportFile, ParseResult } from './types';
@@ -35,6 +36,8 @@ export function parseImportFile(file: ImportFile): ImportOutcome {
     }
     case 'perplexity':
       return { ok: true, result: parsePerplexity(detected.markdown, detected.fileName) };
+    case 'claude_code':
+      return { ok: true, result: parseClaudeCode(detected.jsonl, detected.fileName) };
     case 'unsupported':
       return { ok: false, reason: detected.reason, guidance: detected.guidance };
   }

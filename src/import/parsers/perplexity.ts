@@ -1,13 +1,21 @@
 /**
- * Perplexity個別スレッドエクスポート（Markdown）のパーサー。
+ * Perplexity個別スレッドエクスポート（Markdown）、および汎用Markdown/テキスト文書のパーサー。
  *
  * 確定仕様（import-spec.md §5）：Phase1は個別スレッドの手動アップロードのみ。
  * - 引用元URLがフッターノート（[1]: https://... 等）として付くのが特徴 → Message.citations へ
  * - エクスポート形式は非公式で揺れるため、構造が読めない場合は
- *   「ファイル全体を1つのassistantメッセージ」として取り込むフォールバックを持つ
+ *   「ファイル全体を1つのメッセージ」として取り込むフォールバックを持つ
+ *
+ * 【汎用ドキュメント対応（2026-07-14）】detect.tsは`.md`/`.markdown`/`.txt`拡張子のファイルを
+ * すべてこのパーサーへ渡す。実際にPerplexityのQ/A構造（`## 見出し`）が見つかった場合のみ
+ * `source: 'perplexity'`とし、見つからなければ`source: 'document'`（汎用メモ・ドキュメント）
+ * として取り込む。これにより、例えば外部で作ったロードマップ等のMarkdownファイルも
+ * Lumoraへそのままインポートでき、search-spec.md「2章」の「一次情報」原則（ユーザー自身が
+ * 作成またはインポートした一次情報は検索対象）にそのまま乗る。検索側の変更は不要
+ * （`conversations.title`/`messages.content`を見る既存の横断検索がそのまま拾う）。
  */
 
-import type { ParsedConversation, ParsedMessage, ParseResult, ParseWarning } from '../types';
+import type { ParsedConversation, ParsedMessage, ParseResult, ParseWarning, Source } from '../types';
 
 export function parsePerplexity(markdown: string, fileName: string): ParseResult {
   const warnings: ParseWarning[] = [];
@@ -31,9 +39,14 @@ export function parsePerplexity(markdown: string, fileName: string): ParseResult
 
   // 3) Q/A分割：「## 見出し」をユーザー質問、その下の本文をassistant回答として解釈する
   //    （Perplexityの標準的なMarkdownエクスポートは質問が見出し、回答が本文になる）
-  const messages: ParsedMessage[] = [];
   const sections = splitSections(markdown);
 
+  // 「## 見出し」が1つでも見つかれば実際のPerplexityエクスポートとみなす。見つからなければ
+  // Perplexity以外の汎用的なMarkdown/テキスト文書（メモ・ドキュメント等）として扱う
+  const hasQaStructure = sections.some((s) => s.heading !== null);
+  const source: Source = hasQaStructure ? 'perplexity' : 'document';
+
+  const messages: ParsedMessage[] = [];
   for (const section of sections) {
     if (section.heading) {
       messages.push({
@@ -47,7 +60,8 @@ export function parsePerplexity(markdown: string, fileName: string): ParseResult
     const body = stripCitationFootnotes(section.body).trim();
     if (body) {
       messages.push({
-        role: 'assistant',
+        // Q/A構造があればAIの回答（assistant）、無ければユーザー自身の文書本文（user）として扱う
+        role: hasQaStructure ? 'assistant' : 'user',
         content: body,
         contentFormatLost: true, // Markdown整形をプレーンテキスト扱いにするため
         createdAt: null,
@@ -56,22 +70,21 @@ export function parsePerplexity(markdown: string, fileName: string): ParseResult
     }
   }
 
-  // 質問（見出し）が1つも復元できなかった場合は、構造を解釈できていない可能性を申告する
-  if (messages.length > 0 && !messages.some((m) => m.role === 'user')) {
+  if (!hasQaStructure) {
     warnings.push({
       conversationRef: ref,
-      message: 'Q/A構造（質問見出し）が見つからなかったため、本文を1メッセージとして取り込みました',
+      message: 'Q/A構造（見出し）が見つからなかったため、汎用ドキュメントとして取り込みました',
     });
   }
 
-  // 4) フォールバック：Q/A構造が読めなかったら全体を1メッセージに
+  // 4) フォールバック：本文が1件も復元できなかったら全体を1メッセージに
   if (messages.length === 0) {
     warnings.push({
       conversationRef: ref,
-      message: 'Q/A構造を解釈できなかったため、ファイル全体を1メッセージとして取り込みました',
+      message: '内容を解釈できなかったため、ファイル全体を1メッセージとして取り込みました',
     });
     messages.push({
-      role: 'assistant',
+      role: 'user',
       content: stripCitationFootnotes(markdown).trim(),
       contentFormatLost: true,
       createdAt: null,
@@ -80,7 +93,7 @@ export function parsePerplexity(markdown: string, fileName: string): ParseResult
   }
 
   const conversation: ParsedConversation = {
-    source: 'perplexity',
+    source,
     sourceConversationId: null,
     title,
     createdAt: null,
@@ -89,7 +102,7 @@ export function parsePerplexity(markdown: string, fileName: string): ParseResult
     messages,
   };
 
-  return { source: 'perplexity', conversations: [conversation], failed: [], warnings };
+  return { source, conversations: [conversation], failed: [], warnings };
 }
 
 interface Section {

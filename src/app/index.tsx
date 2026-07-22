@@ -184,14 +184,10 @@ export default function HomeScreen() {
                       onPressIn={() => triggerPress(s.testID)}
                       onPress={() => router.push(s.href)}
                       testID={s.testID}
+                      accessibilityLabel={s.label}
                     >
+                      <s.Icon size={36} color={theme.textSecondary} pressTrigger={pressTriggers[s.testID]} />
                       <ThemedText style={styles.statValue}>{s.value}</ThemedText>
-                      <View style={styles.statLabelRow}>
-                        <s.Icon size={14} color={theme.textSecondary} pressTrigger={pressTriggers[s.testID]} />
-                        <ThemedText type="small" themeColor="textSecondary">
-                          {s.label}
-                        </ThemedText>
-                      </View>
                     </Pressable>
                   ))}
                 </View>
@@ -247,9 +243,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   statsRow: { flexDirection: 'row', gap: Spacing.six },
-  stat: { gap: Spacing.half },
-  statLabelRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.half },
-  statValue: { fontSize: 28, lineHeight: 34, fontWeight: '600' },
+  // 記号6:数字4の比率（決定・2026-07-22）。トップでは名称テキストを表記しない
+  stat: { alignItems: 'center', gap: Spacing.half },
+  statValue: { fontSize: 24, lineHeight: 30, fontWeight: '600' },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',

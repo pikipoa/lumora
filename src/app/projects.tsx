@@ -5,12 +5,14 @@
 
 import { Redirect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { RealmIcon } from '@/components/type-icon';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
@@ -30,6 +32,7 @@ interface ProjectRow {
 export default function ProjectsScreen() {
   const { session, loading } = useAuth();
   const router = useRouter();
+  const theme = useTheme();
 
   const [projects, setProjects] = useState<ProjectRow[] | null>(null);
   const [creating, setCreating] = useState(false);
@@ -108,7 +111,10 @@ export default function ProjectsScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <HomeLink />
-        <ThemedText type="subtitle">{t.realms.title}</ThemedText>
+        <View style={styles.row}>
+          <RealmIcon size={22} color={theme.text} />
+          <ThemedText type="subtitle">{t.realms.title}</ThemedText>
+        </View>
 
         {projects === null ? (
           <ActivityIndicator style={{ marginTop: Spacing.five }} />

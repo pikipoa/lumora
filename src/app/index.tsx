@@ -23,6 +23,7 @@ import * as SplashScreen from 'expo-splash-screen';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ChronicleIcon, RealmIcon } from '@/components/type-icon';
 import { UnlockCelebration } from '@/components/unlock-celebration';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -92,12 +93,34 @@ export default function HomeScreen() {
     router.push({ pathname: '/search', params: { q: trimmed } });
   }
 
-  const stats: { label: string; value: number; href: '/chronicles' | '/projects'; testID: string }[] = [];
+  // タップした瞬間にアイコンの演出（Realm=波紋+弾む／Chronicle=ページめくり）を再生するトリガー
+  const [pressTriggers, setPressTriggers] = useState<Record<string, number>>({});
+  const triggerPress = (key: string) => setPressTriggers((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
+
+  const stats: {
+    label: string;
+    Icon: typeof RealmIcon;
+    value: number;
+    href: '/chronicles' | '/projects';
+    testID: string;
+  }[] = [];
   if (counts && seenFlags.arcaChronicle) {
-    stats.push({ label: t.brand.chronicle, value: counts.chronicleCount, href: '/chronicles', testID: 'chronicle-card' });
+    stats.push({
+      label: t.brand.chronicle,
+      Icon: ChronicleIcon,
+      value: counts.chronicleCount,
+      href: '/chronicles',
+      testID: 'chronicle-card',
+    });
   }
   if (counts && seenFlags.realm) {
-    stats.push({ label: t.brand.realm, value: counts.realmCount, href: '/projects', testID: 'realm-card' });
+    stats.push({
+      label: t.brand.realm,
+      Icon: RealmIcon,
+      value: counts.realmCount,
+      href: '/projects',
+      testID: 'realm-card',
+    });
   }
 
   return (
@@ -155,11 +178,20 @@ export default function HomeScreen() {
               {stats.length > 0 && (
                 <View style={styles.statsRow}>
                   {stats.map((s) => (
-                    <Pressable key={s.label} style={styles.stat} onPress={() => router.push(s.href)} testID={s.testID}>
+                    <Pressable
+                      key={s.label}
+                      style={styles.stat}
+                      onPressIn={() => triggerPress(s.testID)}
+                      onPress={() => router.push(s.href)}
+                      testID={s.testID}
+                    >
                       <ThemedText style={styles.statValue}>{s.value}</ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {s.label}
-                      </ThemedText>
+                      <View style={styles.statLabelRow}>
+                        <s.Icon size={14} color={theme.textSecondary} pressTrigger={pressTriggers[s.testID]} />
+                        <ThemedText type="small" themeColor="textSecondary">
+                          {s.label}
+                        </ThemedText>
+                      </View>
                     </Pressable>
                   ))}
                 </View>
@@ -216,6 +248,7 @@ const styles = StyleSheet.create({
   },
   statsRow: { flexDirection: 'row', gap: Spacing.six },
   stat: { gap: Spacing.half },
+  statLabelRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.half },
   statValue: { fontSize: 28, lineHeight: 34, fontWeight: '600' },
   footer: {
     flexDirection: 'row',

@@ -12,12 +12,14 @@
 
 import { Redirect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ChronicleIcon } from '@/components/type-icon';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
@@ -54,6 +56,7 @@ interface ProjectOption {
 export default function ChroniclesScreen() {
   const { session, loading } = useAuth();
   const router = useRouter();
+  const theme = useTheme();
   const [rows, setRows] = useState<ChronicleRow[] | null>(null);
   const [unassigned, setUnassigned] = useState<UnassignedMarker[]>([]);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
@@ -125,7 +128,10 @@ export default function ChroniclesScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <HomeLink />
-        <ThemedText type="subtitle">{t.chronicle.title}</ThemedText>
+        <View style={styles.titleRow}>
+          <ChronicleIcon size={22} color={theme.text} />
+          <ThemedText type="subtitle">{t.chronicle.title}</ThemedText>
+        </View>
 
         {/* Realm未割当マーカーの一時セクション。0件になると消える（v2.1） */}
         {unassigned.length > 0 && (
@@ -199,6 +205,7 @@ const styles = StyleSheet.create({
     gap: Spacing.four,
   },
   row: { gap: Spacing.half },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   pendingSection: { gap: Spacing.three, paddingBottom: Spacing.two },
   pendingRow: { gap: Spacing.one },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },

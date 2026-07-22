@@ -89,7 +89,7 @@ Conversation {
 }
 ```
 
-**`source: "document"`の追加（決定・2026-07-14）**：`.md`/`.txt`ファイルはPerplexityパーサー（`src/import/parsers/perplexity.ts`）へ渡すが、実際に`## 見出し`によるQ/A構造が見つかった場合のみ`source: "perplexity"`とし、見つからなければ汎用のMarkdown/テキスト文書（メモ・ドキュメント等）として`source: "document"`で取り込む。検索（`search-spec.md`「2章 一次情報」原則）は`conversations.title`/`messages.content`を見るだけなので、この変更だけで既存の横断検索がそのまま対象に含める。
+**`source: "document"`の追加（決定・2026-07-14）**：`.md`/`.txt`ファイルはPerplexityパーサー（`src/import/parsers/perplexity.ts`）へ渡すが、実際にPerplexityのシグネチャ（ロゴ画像URLまたは脚注形式の引用マーカー`[^N_M]`）が見つかった場合のみ`source: "perplexity"`とし、見つからなければ汎用のMarkdown/テキスト文書（メモ・ドキュメント等）として`source: "document"`で取り込む。検索（`search-spec.md`「2章 一次情報」原則）は`conversations.title`/`messages.content`を見るだけなので、この変更だけで既存の横断検索がそのまま対象に含める。（判定方法は当初`## 見出し`の有無としていたが、2026-07-22の実データ検証により`##`はAIの回答内の小見出しであり判定材料にならないことが判明したため訂正した。詳細：`import-spec.md`§5「実データ検証で確定した実際のスキーマ」）
 
 **`source: "claude_code"`の追加（決定・2026-07-21）**：ユーザー自身のClaude Code CLIセッション記録（`.jsonl`、1行1イベント）を取り込めるようにした。実データ検証により、`type:"user"`（content文字列のみ、tool_result等の配列は除外）と`type:"assistant"`の`text`ブロック（thinking/tool_useは除外）だけを会話として復元し、`type:"ai-title"`の値をタイトルに採用する（パーサー：`src/import/parsers/claudeCode.ts`）。他のエージェントAIツール（Codex CLI等）についても同じJSONL構造を持つか調査したが、この環境ではCodex CLIのローカルファイルはアプリ状態のみでセッション記録ではなく、Cursor/Cline/Aider等はこの環境に存在しないため検証できておらず、Phase1では対応していない。
 

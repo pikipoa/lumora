@@ -11,7 +11,7 @@
 
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { ConversationMarkerWorkspace } from '@/components/conversation-marker-workspace';
 import { HomeLink } from '@/components/home-link';
@@ -71,59 +71,72 @@ export default function ConversationDetailScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <HomeLink />
-        <Pressable onPress={() => router.back()} testID="back-button">
-          <ThemedText type="link">{t.common.back}</ThemedText>
-        </Pressable>
+      <View style={styles.page}>
+        {/* 長い会話をどこまでスクロールしても戻れるよう、ヘッダーはスクロール領域の外に固定する
+            （2026-07-22、長大な会話の最下部からトップへ戻れない不具合の修正） */}
+        <View style={styles.headerRow}>
+          <HomeLink />
+          <Pressable onPress={() => router.back()} testID="back-button">
+            <ThemedText type="link">{t.common.back}</ThemedText>
+          </Pressable>
+        </View>
 
-        <ConversationMarkerWorkspace
-          conversationId={id}
-          jumpToMarkerId={jumpToMarkerId}
-          onLoaded={(c) => {
-            setConversationFound(!!c);
-            if (c && !memoLoaded) loadMemo();
-          }}
-        />
+        <ScrollView contentContainerStyle={styles.content}>
+          <ConversationMarkerWorkspace
+            conversationId={id}
+            jumpToMarkerId={jumpToMarkerId}
+            onLoaded={(c) => {
+              setConversationFound(!!c);
+              if (c && !memoLoaded) loadMemo();
+            }}
+          />
 
-        {conversationFound && (
-          <ThemedView type="backgroundElement" style={styles.section}>
-            <ThemedText type="smallBold">{t.conversation.memoTitle}</ThemedText>
-            <TextInput
-              style={styles.textArea}
-              value={memoDraft}
-              onChangeText={(text) => {
-                setMemoDraft(text);
-                setMemoSaved(false);
-              }}
-              multiline
-              placeholder={t.conversation.memoPlaceholder}
-              testID="memo-input"
-            />
-            <ThemedView style={styles.row}>
-              <Pressable style={styles.smallButton} onPress={saveMemo} testID="memo-save-button">
-                <ThemedText style={styles.smallButtonText}>{t.common.save}</ThemedText>
-              </Pressable>
-              {memoSaved && (
-                <ThemedText type="small" testID="memo-saved-indicator">
-                  {t.conversation.memoSaved}
-                </ThemedText>
-              )}
+          {conversationFound && (
+            <ThemedView type="backgroundElement" style={styles.section}>
+              <ThemedText type="smallBold">{t.conversation.memoTitle}</ThemedText>
+              <TextInput
+                style={styles.textArea}
+                value={memoDraft}
+                onChangeText={(text) => {
+                  setMemoDraft(text);
+                  setMemoSaved(false);
+                }}
+                multiline
+                placeholder={t.conversation.memoPlaceholder}
+                testID="memo-input"
+              />
+              <ThemedView style={styles.row}>
+                <Pressable style={styles.smallButton} onPress={saveMemo} testID="memo-save-button">
+                  <ThemedText style={styles.smallButtonText}>{t.common.save}</ThemedText>
+                </Pressable>
+                {memoSaved && (
+                  <ThemedText type="small" testID="memo-saved-indicator">
+                    {t.conversation.memoSaved}
+                  </ThemedText>
+                )}
+              </ThemedView>
             </ThemedView>
-          </ThemedView>
-        )}
-      </ScrollView>
+          )}
+        </ScrollView>
+      </View>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, flexDirection: 'row', justifyContent: 'center' },
+  page: { flex: 1, width: '100%', maxWidth: MaxContentWidth },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.four,
+    paddingBottom: Spacing.two,
+  },
   content: {
-    maxWidth: MaxContentWidth,
-    width: '100%',
-    alignSelf: 'center',
     padding: Spacing.four,
+    paddingTop: Spacing.two,
     gap: Spacing.three,
   },
   section: { borderRadius: Spacing.two, padding: Spacing.three, gap: Spacing.two },

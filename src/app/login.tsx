@@ -9,23 +9,29 @@ import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { t } from '@/i18n';
 import { supabase } from '@/lib/supabase';
 
+type Mode = 'login' | 'signup' | 'reset';
+
 export default function LoginScreen() {
   const router = useRouter();
+  const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [showWhySupabase, setShowWhySupabase] = useState(false);
+
+  function switchMode(next: Mode) {
+    setMode(next);
+    setError(null);
+    setNotice(null);
+  }
 
   async function signIn() {
     setBusy(true);
     setError(null);
-    const trimmedEmail = email.trim();
-    // 接続先の取り違え調査用（publishable keyは公開前提の値なのでURL出力は問題ない）
-    console.log(
-      `[login] email="${trimmedEmail}" supabaseUrl=${process.env.EXPO_PUBLIC_SUPABASE_URL}`,
-    );
     const { error: authError } = await supabase.auth.signInWithPassword({
-      email: trimmedEmail,
+      email: email.trim(),
       password,
     });
     setBusy(false);
@@ -36,14 +42,63 @@ export default function LoginScreen() {
     router.replace('/');
   }
 
+  async function signUp() {
+    setBusy(true);
+    setError(null);
+    const { error: authError } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+    });
+    setBusy(false);
+    if (authError) {
+      setError(t.login.signupFailed(authError.message));
+      return;
+    }
+    setNotice(t.login.signupSuccess);
+  }
+
+  async function requestReset() {
+    setBusy(true);
+    setError(null);
+    const { error: authError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/reset-password` : undefined,
+    });
+    setBusy(false);
+    if (authError) {
+      setError(t.login.resetFailed(authError.message));
+      return;
+    }
+    setNotice(t.login.resetSuccess);
+  }
+
+  function submit() {
+    if (mode === 'login') return signIn();
+    if (mode === 'signup') return signUp();
+    return requestReset();
+  }
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ThemedText type="title">{t.brand.appName}</ThemedText>
-        <ThemedText type="small">{t.login.help}</ThemedText>
-        <ThemedText type="small" style={styles.connInfo}>
-          {t.login.connectedTo(process.env.EXPO_PUBLIC_SUPABASE_URL ?? t.login.urlUnset)}
-        </ThemedText>
+
+        {mode !== 'reset' && (
+          <ThemedView style={styles.tabRow}>
+            <Pressable onPress={() => switchMode('login')} testID="mode-login-tab">
+              <ThemedText type={mode === 'login' ? 'smallBold' : 'small'} themeColor={mode === 'login' ? 'text' : 'textSecondary'}>
+                {t.login.modeLoginTab}
+              </ThemedText>
+            </Pressable>
+            <Pressable onPress={() => switchMode('signup')} testID="mode-signup-tab">
+              <ThemedText type={mode === 'signup' ? 'smallBold' : 'small'} themeColor={mode === 'signup' ? 'text' : 'textSecondary'}>
+                {t.login.modeSignupTab}
+              </ThemedText>
+            </Pressable>
+          </ThemedView>
+        )}
+
+        {mode === 'signup' && <ThemedText type="small">{t.login.signupHelp}</ThemedText>}
+        {mode === 'reset' && <ThemedText type="small">{t.login.resetHelp}</ThemedText>}
 
         <TextInput
           style={styles.input}
@@ -55,25 +110,53 @@ export default function LoginScreen() {
           onChangeText={setEmail}
           testID="email-input"
         />
-        <TextInput
-          style={styles.input}
-          placeholder={t.login.passwordPlaceholder}
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-          onSubmitEditing={signIn}
-          testID="password-input"
-        />
+        {mode !== 'reset' && (
+          <TextInput
+            style={styles.input}
+            placeholder={t.login.passwordPlaceholder}
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+            onSubmitEditing={submit}
+            testID="password-input"
+          />
+        )}
 
         {error && <ThemedText style={styles.error}>{error}</ThemedText>}
+        {notice && <ThemedText style={styles.notice}>{notice}</ThemedText>}
 
-        <Pressable style={styles.button} onPress={signIn} disabled={busy} testID="login-button">
+        <Pressable style={styles.button} onPress={submit} disabled={busy} testID="submit-button">
           {busy ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <ThemedText style={styles.buttonText}>{t.login.loginButton}</ThemedText>
+            <ThemedText style={styles.buttonText}>
+              {mode === 'login' ? t.login.loginButton : mode === 'signup' ? t.login.signupButton : t.login.resetButton}
+            </ThemedText>
           )}
         </Pressable>
+
+        {mode === 'login' && (
+          <Pressable onPress={() => switchMode('reset')} testID="forgot-password-link">
+            <ThemedText type="link">{t.login.forgotPasswordLink}</ThemedText>
+          </Pressable>
+        )}
+        {mode === 'reset' && (
+          <Pressable onPress={() => switchMode('login')} testID="back-to-login-link">
+            <ThemedText type="link">{t.login.backToLogin}</ThemedText>
+          </Pressable>
+        )}
+
+        <Pressable onPress={() => setShowWhySupabase((v) => !v)} testID="why-supabase-toggle">
+          <ThemedText type="small" themeColor="textSecondary">
+            {showWhySupabase ? '▾ ' : '▸ '}
+            {t.login.whySupabaseToggle}
+          </ThemedText>
+        </Pressable>
+        {showWhySupabase && (
+          <ThemedText type="small" themeColor="textSecondary" style={styles.whySupabaseBody}>
+            {t.login.whySupabaseBody}
+          </ThemedText>
+        )}
       </SafeAreaView>
     </ThemedView>
   );
@@ -88,6 +171,7 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.six,
     gap: Spacing.three,
   },
+  tabRow: { flexDirection: 'row', gap: Spacing.four },
   input: {
     borderWidth: 1,
     borderColor: Colors.light.backgroundSelected,
@@ -105,5 +189,6 @@ const styles = StyleSheet.create({
   },
   buttonText: { color: '#fff', fontWeight: '600' },
   error: { color: '#D93025' },
-  connInfo: { opacity: 0.6 },
+  notice: { color: '#1E7E34' },
+  whySupabaseBody: { lineHeight: 20 },
 });

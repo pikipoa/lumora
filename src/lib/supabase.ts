@@ -17,6 +17,8 @@ export const supabase = createClient(url, key, {
     ...(Platform.OS !== 'web' ? { storage: AsyncStorage } : {}),
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: false,
+    // パスワード再設定メールのリンクから戻った際、URL中のトークンからセッションを復元するために必要
+    // （2026-07-23、サインアップ機能実装時にパスワードリセット対応のため有効化。Web版のみ）
+    detectSessionInUrl: Platform.OS === 'web',
   },
 });

@@ -22,6 +22,7 @@ export const ja = {
   routes: {
     home: 'Lumora',
     login: 'ログイン',
+    resetPassword: 'パスワード再設定',
     import: 'インポート',
     importSummary: 'インポート完了',
     inbox: '会話一覧',
@@ -67,13 +68,42 @@ export const ja = {
   },
 
   login: {
-    help: 'Supabaseダッシュボード（Authentication → Users）で作成したアカウントでログインします',
-    connectedTo: (url: string) => `接続先: ${url}`,
-    urlUnset: '(未設定)',
     emailPlaceholder: 'メールアドレス',
     passwordPlaceholder: 'パスワード',
     loginButton: 'ログイン',
     failed: (message: string) => `ログインに失敗しました: ${message}`,
+
+    modeLoginTab: 'ログイン',
+    modeSignupTab: '新規登録',
+
+    signupHelp: 'メールアドレスとパスワードで登録します',
+    signupButton: '新規登録',
+    signupSuccess: '確認メールを送信しました。メール内のリンクを開いて登録を完了してください。',
+    signupFailed: (message: string) => `登録に失敗しました: ${message}`,
+
+    forgotPasswordLink: 'パスワードをお忘れですか？',
+    resetHelp: '登録したメールアドレスに、パスワード再設定用のリンクを送ります',
+    resetButton: '再設定メールを送る',
+    resetSuccess: 'パスワード再設定用のメールを送信しました。メール内のリンクを開いてください。',
+    resetFailed: (message: string) => `送信に失敗しました: ${message}`,
+    backToLogin: '← ログインに戻る',
+
+    whySupabaseToggle: 'なぜSupabase（Postgres）を使っているのか？',
+    whySupabaseBody:
+      'Lumoraは、AIとのチャット履歴という個人的な記録を預かるアプリです。だからこそ、自社製ではなく実績のある技術の上に作っています。\n\n' +
+      '・データは東京リージョンのPostgreSQL（業界標準のオープンなデータベース）に、行レベルセキュリティ（RLS）という仕組みで保存されます。データベースの設計上、他のユーザーのデータにはアクセスできない仕組みになっています。\n\n' +
+      '・会話の原本ファイル（エクスポートしたZIP/JSON）自体はお使いの端末に留まり、クラウドには送信されません。クラウドに保存されるのは、そこから取り出した会話のテキスト内容（検索やマーカー作成に必要な分）のみです。\n\n' +
+      '・ログイン機能は自社製ではなく、実績のあるSupabase Authという仕組みを使っています。',
+  },
+
+  resetPassword: {
+    title: '新しいパスワードを設定',
+    newPasswordPlaceholder: '新しいパスワード',
+    confirmButton: '設定する',
+    success: 'パスワードを変更しました。',
+    goHome: 'ホームへ',
+    failed: (message: string) => `変更に失敗しました: ${message}`,
+    invalidSession: 'このリンクは無効か、有効期限が切れています。もう一度パスワード再設定メールを送信してください。',
   },
 
   importScreen: {

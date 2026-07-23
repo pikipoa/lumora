@@ -18,6 +18,7 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" options={{ title: t.routes.home }} />
           <Stack.Screen name="login" options={{ title: t.routes.login }} />
+          <Stack.Screen name="reset-password" options={{ title: t.routes.resetPassword }} />
           <Stack.Screen name="import" options={{ title: t.routes.import }} />
           <Stack.Screen name="import-summary" options={{ title: t.routes.importSummary }} />
           <Stack.Screen name="inbox" options={{ title: t.routes.inbox }} />

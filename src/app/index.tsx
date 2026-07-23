@@ -50,6 +50,10 @@ export default function HomeScreen() {
   const [seenFlags, setSeenFlags] = useState<SeenFlags>({ arcaChronicle: false, realm: false });
   const [celebrationQueue, setCelebrationQueue] = useState<CelebrationCard[]>([]);
   const [query, setQuery] = useState('');
+  // タップした瞬間にアイコンの演出（Realm=波紋+弾む／Chronicle=ページめくり）を再生するトリガー。
+  // 早期return（!loading && !session）より前に置く必要がある（Rules of Hooks違反を避けるため。
+  // 2026-07-23、未ログイン時にHooksの呼び出し数がレンダーごとに変わりクラッシュする不具合を修正）
+  const [pressTriggers, setPressTriggers] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!loading) SplashScreen.hideAsync();
@@ -93,8 +97,6 @@ export default function HomeScreen() {
     router.push({ pathname: '/search', params: { q: trimmed } });
   }
 
-  // タップした瞬間にアイコンの演出（Realm=波紋+弾む／Chronicle=ページめくり）を再生するトリガー
-  const [pressTriggers, setPressTriggers] = useState<Record<string, number>>({});
   const triggerPress = (key: string) => setPressTriggers((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
 
   const stats: {

@@ -58,6 +58,9 @@ export const ja = {
     unknownDate: '日付不明',
     items: (n: number) => `${n}件`,
     error: (detail: string) => `エラー: ${detail}`,
+    crashTitle: '問題が発生しました',
+    crashBody: 'エラーが記録されました。再読み込みしてお試しください。',
+    reload: '再読み込み',
   },
 
   home: {

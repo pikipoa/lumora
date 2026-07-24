@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useColorScheme, View } from 'react-native';
 
 import { BottomTabBar, TAB_BAR_HEIGHT } from '@/components/bottom-tab-bar';
+import { CrashFallback } from '@/components/crash-fallback';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { t } from '@/i18n';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
@@ -65,12 +66,17 @@ function AppShell() {
 function RootLayout() {
   const colorScheme = useColorScheme();
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AuthProvider>
-        <RouteTracker />
-        <AppShell />
-      </AuthProvider>
-    </ThemeProvider>
+    // Sentry.wrap()自体はErrorBoundaryを含まない（TouchEventBoundary/Profilerのみ）ため、
+    // 未捕捉のレンダーエラーで画面全体が真っ白になり復帰しない不具合があった。
+    // 明示的にErrorBoundaryで全体を囲み、フォールバックUIを用意する（2026-07-24）
+    <Sentry.ErrorBoundary fallback={<CrashFallback />}>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <AuthProvider>
+          <RouteTracker />
+          <AppShell />
+        </AuthProvider>
+      </ThemeProvider>
+    </Sentry.ErrorBoundary>
   );
 }
 

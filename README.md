@@ -5,7 +5,7 @@ ChatGPT / Gemini / Claude / Perplexity との会話を取り込み、タグ・�
 
 ブランド命名（Realm/Wing/Chronicle/Ore/Arca）は**UI表示層のみ**に使い、コード・DB層はデータモデル名（Project/Theme/Conversation/proposed/confirmed）のまま実装する（CLAUDE.md参照）。
 
-- 仕様書：[docs/VISION.md](docs/VISION.md) / [docs/import-spec.md](docs/import-spec.md) / [docs/data-model.md](docs/data-model.md) / [docs/ux-flow-and-screens.md](docs/ux-flow-and-screens.md)
+- 仕様書：[docs/PRINCIPLES.md](docs/PRINCIPLES.md) / [docs/VISION.md](docs/VISION.md) / [docs/import-spec.md](docs/import-spec.md) / [docs/data-model.md](docs/data-model.md) / [docs/ux-flow-and-screens.md](docs/ux-flow-and-screens.md)
 - 実装判断ルール：[CLAUDE.md](CLAUDE.md)
 
 ## 技術スタック

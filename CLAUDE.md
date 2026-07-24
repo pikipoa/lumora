@@ -125,6 +125,7 @@ Phase1機能の依存関係に基づく（詳細：`ux-flow-and-screens.md`関�
 
 ## 5. 参照ドキュメント
 
+- `PRINCIPLES.md`：Lumoraの設計原則（5箇条）。個別の仕様判断で迷ったら最初に立ち返る場所（2026-07-23制定）
 - `VISION.md`：プロダクト哲学・Phase1スコープ・未決定事項
 - `DESIGN.md`：デザイン哲学（UI実装ルール・Definition of Done。2026-07-11追加）
 - `import-spec.md`：4社のインポート形式仕様

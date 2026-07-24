@@ -27,6 +27,25 @@ Import → Search → マーカー（＝Arca生成）→ Realm選択 → Realm�
 → AI分析 → Wing候補（確度付き）→ ユーザー承認 → 収納 → Tag（内部）
 ```
 
+### Arcaのライフサイクル（明文化・2026-07-23）
+
+Arca（＝confirmedなMarker）は、生成から却下まで一貫して**追記専用・非破壊**で扱う（`PRINCIPLES.md`の柱）：
+
+1. **生成**：横断検索で会話本文を選択し、5色から1つを選ぶ（色選択＝確定操作）。この瞬間`markers`にstatus='confirmed'で作成される。常に`proposed_by: human`（AIが自動生成することはない）。原文（`quoted_text`）はこの時点で固定され、以後不変
+2. **編集**：`edited_text`でRealm内の表示用本文を自由編集できる。原文（`quoted_text`）は変わらず保持され、表示は`edited_text ?? quoted_text`。AIは常に元の一次情報を参照できる
+3. **収納**：`project_id`でRealmへ任意に割り当てる（生成とは別の任意ステップ）
+4. **意味付け**：`organize-markers`/`organize-wings`がTag/Wingをproposed状態で提案し、人間が確定/却下する（Arca自体の状態とは別レイヤー）
+5. **変化の記録**：色・範囲・状態が変わるたびに`MarkerHistory`へ追記専用で記録する（無変化時は記録しない）
+6. **却下**：人間が不要と判断した場合`status: 'rejected'`になる。**物理削除ではない**。一覧表示からは除外されるが、`MarkerHistory`とともにデータは残り続ける
+
+いずれの段階でも、Chronicle（元の会話）・Message（元のメッセージ）への参照（`conversation_id`/`message_id`）は失われない＝常に根拠へ戻れる。
+
+### Realm（知識の器）とView（出力）の責務分離（原則・2026-07-23）
+
+**Realmはデータの置き場所であり、特定の画面・出力形式の都合でデータモデルを歪めない。** Realm/Arca/Wingという構造そのものと、それをどう見せるか（Realm詳細画面、横断検索結果、Chronicle一覧、将来のBeacon生成物等＝**View**）は別のレイヤーとして扱う。新しい画面や出力形式を追加する際は、まずViewの追加（既存データの新しい見せ方）で対応できないかを検討し、Realm側のデータモデルを変更するのは最後の手段とする。
+
+（既存の実装にもこの分離は既に表れている：「RealmはTagを一切見せない」（CLAUDE.md）は、同じデータに対してRealmというViewがTagという要素を意図的に隠している例）
+
 ### 旧・設計思想（Phase1初期。階層とタグの分離）
 
 **「階層構造（置き場所）」と「タグ（切り口）」を分離する**

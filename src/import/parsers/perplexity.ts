@@ -53,9 +53,12 @@ export function parsePerplexity(markdown: string, fileName: string): ParseResult
   const messages: ParsedMessage[] = isPerplexity ? parseThreads(markdown) : parseAsDocument(markdown);
 
   if (!isPerplexity) {
+    // ユーザー向けの文言では内部の判定ロジック（Perplexity形式かどうか）に触れない。
+    // 単なる個人メモ・ドキュメントのアップロードがほとんどのケースで、そこに無関係な
+    // 他社名（Perplexity）が出るとユーザーが混乱するため（2026-07-24、ピキさん実機報告）
     warnings.push({
       conversationRef: ref,
-      message: 'Perplexityのスレッド構造が見つからなかったため、汎用ドキュメントとして取り込みました',
+      message: '会話形式ではなく、通常のドキュメントとして取り込みました',
     });
   }
 

@@ -11,7 +11,10 @@ import { Platform } from 'react-native';
 
 import { parseImportFile } from '@/import';
 import type { ImportFile, ParseFailure, ParseWarning, ParsedConversation, Source } from '@/import';
+import { hasSeenNotice, markNoticeSeen } from '@/lib/seenNotices';
 import { supabase } from '@/lib/supabase';
+
+const WEB_CACHE_NOTICE_KEY = 'web_local_cache_unavailable';
 
 export interface ImportRunSummary {
   batchId: string;
@@ -168,11 +171,18 @@ async function cacheRawFile(
   warnings: ParseWarning[],
 ): Promise<string | null> {
   if (Platform.OS === 'web') {
-    warnings.push({
-      conversationRef: '(原本キャッシュ)',
-      message:
-        'Web版では原本のローカルキャッシュを保存しません（再パースが必要になった場合は再アップロードしてください）',
-    });
+    // Web版の仕様上の制約であり今回のファイル固有の問題ではないため、
+    // 毎回のインポートで繰り返し表示せず初回のみ案内する（2026-07-24、ピキさんのUXフィードバック）
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+    const alreadySeen = userId ? await hasSeenNotice(userId, WEB_CACHE_NOTICE_KEY) : true;
+    if (!alreadySeen) {
+      warnings.push({
+        conversationRef: '(保存の仕組みについて)',
+        message: 'このアプリのWeb版では、アップロードした元ファイルそのものは保存されません。取り込んだ内容はサーバーに保存されるので通常は問題ありませんが、後から元ファイルが必要になった場合はお手元のファイルから再度アップロードしてください（この案内は最初の1回だけ表示されます）。',
+      });
+      if (userId) await markNoticeSeen(userId, WEB_CACHE_NOTICE_KEY);
+    }
     return null;
   }
   try {

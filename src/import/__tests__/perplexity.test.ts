@@ -118,7 +118,9 @@ describe('parsePerplexity', () => {
     expect(result.conversations[0].messages).toHaveLength(1);
     expect(result.conversations[0].messages[0].role).toBe('user');
     expect(result.conversations[0].messages[0].content).toBe('ただのテキスト。見出しなし。');
-    expect(result.warnings.some((w) => w.message.includes('汎用ドキュメント'))).toBe(true);
+    expect(result.warnings.some((w) => w.message.includes('通常のドキュメント'))).toBe(true);
+    // ユーザー向け文言に内部実装の詳細（Perplexity）を漏らさない
+    expect(result.warnings.every((w) => !w.message.includes('Perplexity'))).toBe(true);
   });
 
   test('##見出しを使った汎用ドキュメントも、Perplexityのシグネチャが無ければdocument扱いになる', () => {

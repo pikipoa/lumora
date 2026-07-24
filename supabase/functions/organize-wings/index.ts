@@ -26,6 +26,8 @@
 import Anthropic from 'npm:@anthropic-ai/sdk';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
+import { captureEdgeFunctionError, withSentry } from '../_shared/sentry.ts';
+
 const MODEL = Deno.env.get('LUMORA_AI_MODEL') ?? 'claude-sonnet-5';
 
 interface OrganizeResult {
@@ -101,7 +103,7 @@ ${wingList}
 入力された各マーカーについて、marker_idをそのまま返しつつwingsを提案してください。入力された全マーカー分、必ず1件ずつ返すこと。`;
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(withSentry('organize-wings', async (req: Request) => {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -155,7 +157,13 @@ Deno.serve(async (req: Request) => {
       .eq('project_id', projectId)
       .eq('user_id', userId)
       .eq('status', 'confirmed');
-    if (markersError) return json({ error: `マーカー取得に失敗: ${markersError.message}` }, 500);
+    if (markersError) {
+      captureEdgeFunctionError('organize-wings', new Error(markersError.message), {
+        stage: 'fetch_markers',
+        project_id: projectId,
+      });
+      return json({ error: `マーカー取得に失敗: ${markersError.message}` }, 500);
+    }
 
     type MarkerJoin = {
       id: string;
@@ -211,6 +219,11 @@ Deno.serve(async (req: Request) => {
 
     const textBlock = response.content.find((b) => b.type === 'text');
     if (!textBlock || textBlock.type !== 'text') {
+      captureEdgeFunctionError('organize-wings', new Error(`AI応答にテキストがありません (stop_reason: ${response.stop_reason})`), {
+        stage: 'anthropic_response',
+        markers_processed: candidates.length,
+        stop_reason: String(response.stop_reason),
+      });
       return json({ error: `AI応答にテキストがありません (stop_reason: ${response.stop_reason})` }, 500);
     }
     const result: OrganizeResult = JSON.parse(textBlock.text);
@@ -261,6 +274,7 @@ Deno.serve(async (req: Request) => {
       usage: { input: response.usage.input_tokens, output: response.usage.output_tokens },
     });
   } catch (e) {
+    captureEdgeFunctionError('organize-wings', e, { stage: 'unhandled', project_id: projectId });
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
-});
+}));

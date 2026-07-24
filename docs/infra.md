@@ -12,7 +12,7 @@ Lumora（旧称：Knowledge OS）
 |---|---|
 | GitHub | Claude Codeでの開発・コード履歴管理に必須 |
 | Vercel | Expo Webビルドのホスティング先 |
-| Sentry | クライアント側4社パーサー・マーカー範囲調整UIという技術リスクの高い箇所のエラーを可視化するため |
+| Sentry | 当初はクライアント側4社パーサー・マーカー範囲調整UIという技術リスクの高い箇所のエラー可視化が目的だったが、サインアップ機能実装（2026-07-23）を機に、認証エラー・Edge Function（organize-markers/organize-wings）呼び出し失敗・Anthropicタイムアウトまで対象を拡張した。PIIマスキング（マーカー本文・メモ本文・メールアドレスは送らない、console breadcrumb無効化）を徹底した設計。詳細：`src/lib/sentry.ts`、`supabase/functions/_shared/sentry.ts` |
 
 ## 見送る（Phase1では不要）
 

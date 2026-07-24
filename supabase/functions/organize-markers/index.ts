@@ -22,6 +22,8 @@
 import Anthropic from 'npm:@anthropic-ai/sdk';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
+import { captureEdgeFunctionError, withSentry } from '../_shared/sentry.ts';
+
 const MODEL = Deno.env.get('LUMORA_AI_MODEL') ?? 'claude-sonnet-5';
 
 type TagType = 'topic' | 'concept';
@@ -92,7 +94,7 @@ ${tagList}
 入力された各マーカーについて、marker_idをそのまま返しつつtagsを提案してください。入力された全マーカー分、必ず1件ずつ返すこと。`;
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(withSentry('organize-markers', async (req: Request) => {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -133,7 +135,13 @@ Deno.serve(async (req: Request) => {
       .from('markers')
       .select('id, quoted_text, role_tag, user_id, conversation_id, conversations(title)')
       .in('id', markerIds);
-    if (markersError) return json({ error: `マーカー取得に失敗: ${markersError.message}` }, 500);
+    if (markersError) {
+      captureEdgeFunctionError('organize-markers', new Error(markersError.message), {
+        stage: 'fetch_markers',
+        marker_count: markerIds.length,
+      });
+      return json({ error: `マーカー取得に失敗: ${markersError.message}` }, 500);
+    }
 
     const owned = (markers ?? []).filter((m) => m.user_id === userId);
     if (owned.length === 0) return json({ error: '対象マーカーが見つかりません' }, 404);
@@ -167,6 +175,11 @@ Deno.serve(async (req: Request) => {
 
     const textBlock = response.content.find((b) => b.type === 'text');
     if (!textBlock || textBlock.type !== 'text') {
+      captureEdgeFunctionError('organize-markers', new Error(`AI応答にテキストがありません (stop_reason: ${response.stop_reason})`), {
+        stage: 'anthropic_response',
+        markers_processed: owned.length,
+        stop_reason: String(response.stop_reason),
+      });
       return json({ error: `AI応答にテキストがありません (stop_reason: ${response.stop_reason})` }, 500);
     }
     const result: OrganizeResult = JSON.parse(textBlock.text);
@@ -213,6 +226,7 @@ Deno.serve(async (req: Request) => {
       usage: { input: response.usage.input_tokens, output: response.usage.output_tokens },
     });
   } catch (e) {
+    captureEdgeFunctionError('organize-markers', e, { stage: 'unhandled', marker_count: markerIds.length });
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
-});
+}));

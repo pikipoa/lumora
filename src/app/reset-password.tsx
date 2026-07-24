@@ -11,13 +11,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
 import { Sentry } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const [sessionReady, setSessionReady] = useState<boolean | null>(null);
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -65,8 +67,9 @@ export default function ResetPasswordScreen() {
         ) : (
           <>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: theme.backgroundSelected, backgroundColor: theme.backgroundElement, color: theme.text }]}
               placeholder={t.resetPassword.newPasswordPlaceholder}
+              placeholderTextColor={theme.textSecondary}
               secureTextEntry
               value={password}
               onChangeText={setPassword}
@@ -95,12 +98,9 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: Colors.light.backgroundSelected,
     borderRadius: Spacing.two,
     padding: Spacing.three,
     fontSize: 16,
-    backgroundColor: '#fff',
-    color: '#000',
   },
   button: {
     backgroundColor: '#208AEF',

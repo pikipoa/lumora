@@ -142,14 +142,16 @@ export default function ProjectsScreen() {
           <ThemedView type="backgroundElement" style={styles.form}>
             <ThemedText type="smallBold">{t.realms.newRealmFormTitle}</ThemedText>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: theme.backgroundSelected, backgroundColor: theme.backgroundElement, color: theme.text }]}
+              placeholderTextColor={theme.textSecondary}
               placeholder={t.realms.namePlaceholder}
               value={name}
               onChangeText={setName}
               testID="project-name-input"
             />
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: theme.backgroundSelected, backgroundColor: theme.backgroundElement, color: theme.text }]}
+              placeholderTextColor={theme.textSecondary}
               placeholder={t.realms.descriptionPlaceholder}
               value={description}
               onChangeText={setDescription}
@@ -159,7 +161,7 @@ export default function ProjectsScreen() {
             <ThemedText type="small">{t.realms.seedTagsLabel}</ThemedText>
             <ThemedView style={styles.tagWrap}>
               {seedTags.map((t, i) => (
-                <ThemedView key={i} style={styles.chip}>
+                <ThemedView key={i} style={[styles.chip, { borderColor: theme.backgroundSelected }]}>
                   <ThemedText type="small">
                     {TAG_TYPE_LABEL[t.tag_type]}: {t.name}
                   </ThemedText>
@@ -168,7 +170,8 @@ export default function ProjectsScreen() {
             </ThemedView>
             <ThemedView style={styles.row}>
               <TextInput
-                style={[styles.input, { flex: 1 }]}
+                style={[styles.input, { flex: 1, borderColor: theme.backgroundSelected, backgroundColor: theme.backgroundElement, color: theme.text }]}
+                placeholderTextColor={theme.textSecondary}
                 placeholder={t.realms.seedTagPlaceholder}
                 value={seedTagInput}
                 onChangeText={setSeedTagInput}
@@ -176,12 +179,12 @@ export default function ProjectsScreen() {
                 testID="seed-tag-input"
               />
               <Pressable
-                style={styles.smallButtonOutline}
+                style={[styles.smallButtonOutline, { borderColor: theme.backgroundSelected }]}
                 onPress={() => setSeedTagType(seedTagType === 'topic' ? 'concept' : 'topic')}
               >
                 <ThemedText type="small">{TAG_TYPE_LABEL[seedTagType]}</ThemedText>
               </Pressable>
-              <Pressable style={styles.smallButtonOutline} onPress={addSeedTag} testID="add-seed-tag-button">
+              <Pressable style={[styles.smallButtonOutline, { borderColor: theme.backgroundSelected }]} onPress={addSeedTag} testID="add-seed-tag-button">
                 <ThemedText type="small">{t.common.add}</ThemedText>
               </Pressable>
             </ThemedView>
@@ -190,7 +193,7 @@ export default function ProjectsScreen() {
               <Pressable style={styles.newButton} onPress={createProject} testID="create-project-button">
                 <ThemedText style={styles.newButtonText}>{t.common.create}</ThemedText>
               </Pressable>
-              <Pressable style={styles.smallButtonOutline} onPress={() => setCreating(false)}>
+              <Pressable style={[styles.smallButtonOutline, { borderColor: theme.backgroundSelected }]} onPress={() => setCreating(false)}>
                 <ThemedText type="small">{t.common.cancel}</ThemedText>
               </Pressable>
             </ThemedView>
@@ -215,7 +218,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
   input: {
     borderWidth: 1,
-    borderColor: '#999',
     borderRadius: Spacing.two,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.two,
@@ -224,7 +226,6 @@ const styles = StyleSheet.create({
   chip: {
     borderRadius: Spacing.four,
     borderWidth: 1,
-    borderColor: '#999',
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
   },
@@ -238,7 +239,6 @@ const styles = StyleSheet.create({
   newButtonText: { color: '#fff', fontWeight: '600' },
   smallButtonOutline: {
     borderWidth: 1,
-    borderColor: '#999',
     borderRadius: Spacing.two,
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.two,

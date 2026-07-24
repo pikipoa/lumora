@@ -5,7 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
 import { Sentry } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
@@ -14,6 +15,7 @@ type Mode = 'login' | 'signup' | 'reset';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -106,8 +108,9 @@ export default function LoginScreen() {
         {mode === 'reset' && <ThemedText type="small">{t.login.resetHelp}</ThemedText>}
 
         <TextInput
-          style={styles.input}
+          style={[styles.input, { borderColor: theme.backgroundSelected, backgroundColor: theme.backgroundElement, color: theme.text }]}
           placeholder={t.login.emailPlaceholder}
+          placeholderTextColor={theme.textSecondary}
           autoCapitalize="none"
           autoComplete="email"
           keyboardType="email-address"
@@ -117,8 +120,9 @@ export default function LoginScreen() {
         />
         {mode !== 'reset' && (
           <TextInput
-            style={styles.input}
+            style={[styles.input, { borderColor: theme.backgroundSelected, backgroundColor: theme.backgroundElement, color: theme.text }]}
             placeholder={t.login.passwordPlaceholder}
+            placeholderTextColor={theme.textSecondary}
             secureTextEntry
             value={password}
             onChangeText={setPassword}
@@ -179,12 +183,9 @@ const styles = StyleSheet.create({
   tabRow: { flexDirection: 'row', gap: Spacing.four },
   input: {
     borderWidth: 1,
-    borderColor: Colors.light.backgroundSelected,
     borderRadius: Spacing.two,
     padding: Spacing.three,
     fontSize: 16,
-    backgroundColor: '#fff',
-    color: '#000',
   },
   button: {
     backgroundColor: '#208AEF',

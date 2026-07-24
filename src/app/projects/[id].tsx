@@ -23,6 +23,7 @@ import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
 import { organizeMarkers, organizeWings } from '@/lib/aiService';
 import { supabase } from '@/lib/supabase';
@@ -67,6 +68,7 @@ function displayText(m: MarkerRow): string {
 }
 
 export default function ProjectDetailScreen() {
+  const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
 
@@ -319,7 +321,7 @@ export default function ProjectDetailScreen() {
             </ThemedText>
           ))}
           {proposedWings.map((mw) => (
-            <ThemedView key={mw.id} style={styles.tagChip}>
+            <ThemedView key={mw.id} style={[styles.tagChip, { borderColor: theme.backgroundSelected }]}>
               <ThemedText type="small" themeColor="textSecondary">
                 {mw.themes!.icon ?? '📖'} {mw.themes!.name}
                 {mw.confidence != null ? ` (${mw.confidence}%)` : ''}
@@ -342,7 +344,10 @@ export default function ProjectDetailScreen() {
         <ThemedText type="smallBold">{t.realmDetail.aiPanelTags}</ThemedText>
         <ThemedView style={styles.tagWrap}>
           {tags.map((mt) => (
-            <ThemedView key={mt.id} style={[styles.tagChip, mt.status === 'proposed' && styles.tagChipProposed]}>
+            <ThemedView
+              key={mt.id}
+              style={[styles.tagChip, { borderColor: theme.backgroundSelected }, mt.status === 'proposed' && styles.tagChipProposed]}
+            >
               <ThemedText type="small">
                 {mt.status === 'proposed' ? '? ' : '✓ '}
                 {mt.tags.name}
@@ -376,7 +381,8 @@ export default function ProjectDetailScreen() {
 
         <ThemedView style={styles.row}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { borderColor: theme.backgroundSelected, backgroundColor: theme.backgroundElement, color: theme.text }]}
+            placeholderTextColor={theme.textSecondary}
             placeholder={renameFromId ? t.realmDetail.tagRenamePlaceholder : t.realmDetail.tagAddPlaceholder}
             value={newTagName}
             onChangeText={setNewTagName}
@@ -384,12 +390,16 @@ export default function ProjectDetailScreen() {
             testID="ai-panel-tag-input"
           />
           <Pressable
-            style={styles.chip}
+            style={[styles.chip, { borderColor: theme.backgroundSelected }]}
             onPress={() => setNewTagType(newTagType === 'topic' ? 'concept' : 'topic')}
           >
             <ThemedText type="small">{TAG_TYPE_LABEL[newTagType]}</ThemedText>
           </Pressable>
-          <Pressable style={styles.chip} onPress={() => addTagToMarker(m.id)} testID="ai-panel-tag-add">
+          <Pressable
+            style={[styles.chip, { borderColor: theme.backgroundSelected }]}
+            onPress={() => addTagToMarker(m.id)}
+            testID="ai-panel-tag-add"
+          >
             <ThemedText type="small">{renameFromId ? t.realmDetail.tagRename : t.common.add}</ThemedText>
           </Pressable>
           {renameFromId && (
@@ -466,7 +476,7 @@ export default function ProjectDetailScreen() {
                         {candidates.map((mw) => (
                           <Pressable
                             key={mw.id}
-                            style={styles.chip}
+                            style={[styles.chip, { borderColor: theme.backgroundSelected }]}
                             onPress={() => setWingStatus(mw.id, 'confirmed')}
                             testID={`wing-candidate-${mw.id}`}
                           >
@@ -492,7 +502,7 @@ export default function ProjectDetailScreen() {
                             .map((w) => (
                               <Pressable
                                 key={w.id}
-                                style={styles.chip}
+                                style={[styles.chip, { borderColor: theme.backgroundSelected }]}
                                 onPress={() => assignToWing(m.id, w.id)}
                                 testID={`wing-picker-${w.id}`}
                               >
@@ -564,7 +574,7 @@ export default function ProjectDetailScreen() {
                             {wingOptions.map((w) => (
                               <Pressable
                                 key={w.id}
-                                style={styles.chip}
+                                style={[styles.chip, { borderColor: theme.backgroundSelected }]}
                                 onPress={() => assignToWing(m.id, w.id)}
                                 testID={`unorganized-wing-picker-${w.id}`}
                               >
@@ -589,7 +599,8 @@ export default function ProjectDetailScreen() {
             ) : (
               <ThemedView style={styles.newWingForm}>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { borderColor: theme.backgroundSelected, backgroundColor: theme.backgroundElement, color: theme.text }]}
+                  placeholderTextColor={theme.textSecondary}
                   placeholder={t.realmDetail.wingNamePlaceholder}
                   value={newWingName}
                   onChangeText={setNewWingName}
@@ -600,7 +611,11 @@ export default function ProjectDetailScreen() {
                   {ICON_PRESETS.map((icon) => (
                     <Pressable
                       key={icon}
-                      style={[styles.iconChoice, newWingIcon === icon && styles.iconChoiceActive]}
+                      style={[
+                        styles.iconChoice,
+                        { borderColor: theme.backgroundSelected },
+                        newWingIcon === icon && styles.iconChoiceActive,
+                      ]}
                       onPress={() => setNewWingIcon(icon)}
                       testID={`new-wing-icon-${icon}`}
                     >
@@ -652,7 +667,7 @@ export default function ProjectDetailScreen() {
                   {editingTextId === marker.id ? (
                     <>
                       <TextInput
-                        style={styles.textArea}
+                        style={[styles.textArea, { borderColor: theme.backgroundSelected, backgroundColor: theme.background, color: theme.text }]}
                         value={textDraft}
                         onChangeText={setTextDraft}
                         multiline
@@ -756,7 +771,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 120,
     borderWidth: 1,
-    borderColor: '#999',
     borderRadius: Spacing.two,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
@@ -764,7 +778,6 @@ const styles = StyleSheet.create({
   chip: {
     borderRadius: Spacing.four,
     borderWidth: 1,
-    borderColor: '#999',
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
   },
@@ -774,7 +787,6 @@ const styles = StyleSheet.create({
     gap: Spacing.one,
     borderRadius: Spacing.four,
     borderWidth: 1,
-    borderColor: '#999',
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
   },
@@ -782,7 +794,6 @@ const styles = StyleSheet.create({
   iconChoice: {
     borderRadius: Spacing.two,
     borderWidth: 1,
-    borderColor: '#999',
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
   },
@@ -791,7 +802,6 @@ const styles = StyleSheet.create({
   aiPanel: { gap: Spacing.two, paddingVertical: Spacing.two, paddingLeft: Spacing.three },
   textArea: {
     borderWidth: 1,
-    borderColor: '#999',
     borderRadius: Spacing.two,
     padding: Spacing.two,
     minHeight: 80,

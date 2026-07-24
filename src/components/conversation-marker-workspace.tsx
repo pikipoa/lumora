@@ -508,7 +508,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
             {sortedProjects.map((p) => (
               <Pressable
                 key={p.id}
-                style={styles.chip}
+                style={[styles.chip, { borderColor: theme.backgroundSelected }]}
                 {...preventSelectionLoss}
                 onPress={() => assignMarkerToRealm(editingMarker.id, p.id)}
                 testID={`assign-realm-${p.id}`}
@@ -529,7 +529,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           </ThemedText>
           <ThemedView style={styles.tagWrap}>
             <Pressable
-              style={styles.smallButtonOutline}
+              style={[styles.smallButtonOutline, { borderColor: theme.backgroundSelected }]}
               onPress={() => setRealmPickerMarkerId(null)}
               testID="realm-picker-later"
             >
@@ -538,7 +538,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
             {sortedProjects.map((p) => (
               <Pressable
                 key={p.id}
-                style={styles.chip}
+                style={[styles.chip, { borderColor: theme.backgroundSelected }]}
                 onPress={() => assignMarkerToRealm(realmPickerMarker.id, p.id)}
                 testID={`realm-picker-${p.id}`}
               >
@@ -597,13 +597,11 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     borderRadius: Spacing.four,
     borderWidth: 1,
-    borderColor: '#999',
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
   },
   smallButtonOutline: {
     borderWidth: 1,
-    borderColor: '#999',
     borderRadius: Spacing.two,
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.two,

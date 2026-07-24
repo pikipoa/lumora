@@ -15,12 +15,15 @@ export const Colors = {
     backgroundSelected: '#E0E1E6',
     textSecondary: '#60646C',
   },
+  // 近未来サイバーテック（決定・2026-07-24）：無彩色の白黒反転ではなく、青みを帯びた
+  // トーンで統一する。派手なネオン/グラデーションは使わず（DESIGN.md「避けるもの」）、
+  // 深みのある紺系の階調だけで"テック感"を出す方針。ライトモードは変更しない。
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    text: '#E8ECF5',
+    background: '#05070C',
+    backgroundElement: '#10141F',
+    backgroundSelected: '#1B2233',
+    textSecondary: '#7C8AA3',
   },
 } as const;
 

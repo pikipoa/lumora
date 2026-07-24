@@ -154,7 +154,7 @@ export default function ChroniclesScreen() {
                     {projects.map((p) => (
                       <Pressable
                         key={p.id}
-                        style={styles.chip}
+                        style={[styles.chip, { borderColor: theme.backgroundSelected }]}
                         onPress={() => assignToRealm(m.id, p.id)}
                         testID={`unassigned-assign-${m.id}-${p.id}`}
                       >
@@ -212,7 +212,6 @@ const styles = StyleSheet.create({
   chip: {
     borderRadius: Spacing.four,
     borderWidth: 1,
-    borderColor: '#999',
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
   },

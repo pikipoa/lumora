@@ -18,6 +18,7 @@ import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
 import { supabase } from '@/lib/supabase';
 
@@ -27,6 +28,7 @@ interface MemoRow {
 }
 
 export default function ConversationDetailScreen() {
+  const theme = useTheme();
   const { id, markerId: jumpToMarkerId } = useLocalSearchParams<{ id: string; markerId?: string }>();
   const router = useRouter();
 
@@ -95,7 +97,8 @@ export default function ConversationDetailScreen() {
             <ThemedView type="backgroundElement" style={styles.section}>
               <ThemedText type="smallBold">{t.conversation.memoTitle}</ThemedText>
               <TextInput
-                style={styles.textArea}
+                style={[styles.textArea, { borderColor: theme.backgroundSelected, backgroundColor: theme.background, color: theme.text }]}
+                placeholderTextColor={theme.textSecondary}
                 value={memoDraft}
                 onChangeText={(text) => {
                   setMemoDraft(text);
@@ -143,7 +146,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
   textArea: {
     borderWidth: 1,
-    borderColor: '#999',
     borderRadius: Spacing.two,
     padding: Spacing.two,
     minHeight: 80,

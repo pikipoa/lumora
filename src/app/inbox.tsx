@@ -26,6 +26,7 @@ import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
@@ -61,6 +62,7 @@ function groupByMonth(rows: ConversationRow[]): { title: string; data: Conversat
 }
 
 export default function InboxScreen() {
+  const theme = useTheme();
   const { session, loading } = useAuth();
   const router = useRouter();
   const { projectId, batchId } = useLocalSearchParams<{ projectId?: string; batchId?: string }>();
@@ -194,7 +196,7 @@ export default function InboxScreen() {
             {showHeld ? (
               <ThemedView style={styles.row}>
                 <Pressable
-                  style={styles.buttonOutline}
+                  style={[styles.buttonOutline, { borderColor: theme.backgroundSelected }]}
                   onPress={() => restoreConversation(item.id)}
                   testID={`restore-${item.id}`}
                 >
@@ -212,13 +214,13 @@ export default function InboxScreen() {
                     >
                       <ThemedText style={styles.buttonText}>{t.inbox.deletePermanently}</ThemedText>
                     </Pressable>
-                    <Pressable style={styles.buttonOutline} onPress={() => setConfirmDeleteId(null)}>
+                    <Pressable style={[styles.buttonOutline, { borderColor: theme.backgroundSelected }]} onPress={() => setConfirmDeleteId(null)}>
                       <ThemedText type="small">{t.common.cancel}</ThemedText>
                     </Pressable>
                   </>
                 ) : (
                   <Pressable
-                    style={styles.buttonOutline}
+                    style={[styles.buttonOutline, { borderColor: theme.backgroundSelected }]}
                     onPress={() => setConfirmDeleteId(item.id)}
                     testID={`delete-${item.id}`}
                   >
@@ -232,7 +234,7 @@ export default function InboxScreen() {
               <ThemedView style={styles.row}>
                 {isInboxMode && (
                   <Pressable
-                    style={styles.buttonOutline}
+                    style={[styles.buttonOutline, { borderColor: theme.backgroundSelected }]}
                     onPress={() => openAssignPicker(item.id)}
                     testID={`assign-${item.id}`}
                   >
@@ -240,7 +242,7 @@ export default function InboxScreen() {
                   </Pressable>
                 )}
 
-                <Pressable style={styles.buttonOutline} onPress={() => holdConversation(item.id)} testID={`hold-${item.id}`}>
+                <Pressable style={[styles.buttonOutline, { borderColor: theme.backgroundSelected }]} onPress={() => holdConversation(item.id)} testID={`hold-${item.id}`}>
                   <ThemedText type="small">{t.inbox.hold}</ThemedText>
                 </Pressable>
               </ThemedView>
@@ -251,7 +253,7 @@ export default function InboxScreen() {
                 {(projectOptions ?? []).map((p) => (
                   <Pressable
                     key={p.id}
-                    style={styles.chip}
+                    style={[styles.chip, { borderColor: theme.backgroundSelected }]}
                     onPress={() => assignToProject(item.id, p.id)}
                     testID={`assign-to-${p.id}`}
                   >
@@ -295,7 +297,6 @@ const styles = StyleSheet.create({
   },
   buttonOutline: {
     borderWidth: 1,
-    borderColor: '#999',
     borderRadius: Spacing.two,
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
@@ -307,7 +308,6 @@ const styles = StyleSheet.create({
   chip: {
     borderRadius: Spacing.four,
     borderWidth: 1,
-    borderColor: '#999',
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
   },

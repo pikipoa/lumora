@@ -19,6 +19,7 @@ import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
@@ -48,6 +49,7 @@ function conversationDate(r: ResultRow): string {
 }
 
 export default function SearchScreen() {
+  const theme = useTheme();
   const { session, loading } = useAuth();
   const { q: initialQuery } = useLocalSearchParams<{ q?: string }>();
 
@@ -108,8 +110,9 @@ export default function SearchScreen() {
 
         <ThemedView style={styles.row}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { borderColor: theme.backgroundSelected, backgroundColor: theme.backgroundElement, color: theme.text }]}
             placeholder={t.searchScreen.placeholder}
+            placeholderTextColor={theme.textSecondary}
             value={query}
             onChangeText={setQuery}
             onSubmitEditing={runSearch}
@@ -144,7 +147,7 @@ export default function SearchScreen() {
             {SORT_OPTIONS.map((o) => (
               <Pressable
                 key={o.key}
-                style={[styles.chip, sortKey === o.key && styles.chipActive]}
+                style={[styles.chip, { borderColor: theme.backgroundSelected }, sortKey === o.key && styles.chipActive]}
                 onPress={() => {
                   setSortKey(o.key);
                   setSortOpen(false);
@@ -219,7 +222,6 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#999',
     borderRadius: Spacing.two,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.two,
@@ -227,7 +229,6 @@ const styles = StyleSheet.create({
   chip: {
     borderRadius: Spacing.four,
     borderWidth: 1,
-    borderColor: '#999',
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
   },

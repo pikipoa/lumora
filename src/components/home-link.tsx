@@ -6,18 +6,31 @@
  */
 
 import { useRouter } from 'expo-router';
-import { Pressable } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { Spacing } from '@/constants/theme';
 import { t } from '@/i18n';
 
 export function HomeLink() {
   const router = useRouter();
   return (
-    <Pressable onPress={() => router.push('/')} testID="home-link">
+    // 直下に別のボタン（保留一覧トグル等）が並ぶ画面が多く、隙間が狭いと誤タップで
+    // 意図せずホームへ飛ばされる報告があった（2026-07-24）。marginBottomで実際の
+    // 余白を広げつつ、hitSlopは下方向だけ広げず、隣接ボタンを侵食しないようにする
+    <Pressable
+      onPress={() => router.push('/')}
+      hitSlop={{ top: 8, left: 8, right: 8 }}
+      style={styles.link}
+      testID="home-link"
+    >
       <ThemedText type="small" themeColor="textSecondary">
         {t.brand.appName}
       </ThemedText>
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  link: { alignSelf: 'flex-start', marginBottom: Spacing.two },
+});

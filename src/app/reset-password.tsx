@@ -13,6 +13,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { t } from '@/i18n';
+import { Sentry } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
 
 export default function ResetPasswordScreen() {
@@ -35,6 +36,9 @@ export default function ResetPasswordScreen() {
     const { error: authError } = await supabase.auth.updateUser({ password });
     setBusy(false);
     if (authError) {
+      Sentry.captureException(new Error(`updateUser(password) failed: ${authError.message}`), {
+        tags: { auth_action: 'reset_confirm' },
+      });
       setError(t.resetPassword.failed(authError.message));
       return;
     }

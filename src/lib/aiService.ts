@@ -10,6 +10,7 @@
  * 所属会話タイトルがSupabase Edge Function経由でAnthropic Claude APIに送信される（詳細はREADME）。
  */
 
+import { Sentry } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
 
 export interface OrganizeMarkersResult {
@@ -20,6 +21,8 @@ export interface OrganizeMarkersResult {
 }
 
 export async function organizeMarkers(markerIds: string[]): Promise<OrganizeMarkersResult> {
+  // breadcrumbにはIDの件数のみ残す（マーカー本文は含めない）
+  Sentry.addBreadcrumb({ category: 'ai', message: 'organize-markers 呼び出し開始', data: { count: markerIds.length } });
   const { data, error } = await supabase.functions.invoke('organize-markers', {
     body: { marker_ids: markerIds },
   });
@@ -35,6 +38,7 @@ export async function organizeMarkers(markerIds: string[]): Promise<OrganizeMark
     } catch {
       // 本文が読めなければ元のメッセージのまま
     }
+    Sentry.captureException(new Error(`organize-markers failed: ${detail}`), { tags: { edge_function: 'organize-markers' } });
     return { ok: false, error: detail };
   }
   return data as OrganizeMarkersResult;
@@ -57,6 +61,7 @@ export interface OrganizeWingsResult {
 }
 
 export async function organizeWings(projectId: string): Promise<OrganizeWingsResult> {
+  Sentry.addBreadcrumb({ category: 'ai', message: 'organize-wings 呼び出し開始', data: { project_id: projectId } });
   const { data, error } = await supabase.functions.invoke('organize-wings', {
     body: { project_id: projectId },
   });
@@ -71,6 +76,7 @@ export async function organizeWings(projectId: string): Promise<OrganizeWingsRes
     } catch {
       // 本文が読めなければ元のメッセージのまま
     }
+    Sentry.captureException(new Error(`organize-wings failed: ${detail}`), { tags: { edge_function: 'organize-wings' } });
     return { ok: false, error: detail };
   }
   return data as OrganizeWingsResult;

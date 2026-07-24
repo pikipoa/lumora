@@ -1,17 +1,29 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
 
 import { t } from '@/i18n';
 import { AuthProvider } from '@/lib/auth-context';
+import { initSentry, Sentry, setSentryRoute } from '@/lib/sentry';
 
 SplashScreen.preventAutoHideAsync();
+initSentry();
 
-export default function RootLayout() {
+function RouteTracker() {
+  const pathname = usePathname();
+  useEffect(() => {
+    setSentryRoute(pathname);
+  }, [pathname]);
+  return null;
+}
+
+function RootLayout() {
   const colorScheme = useColorScheme();
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AuthProvider>
+        <RouteTracker />
         {/* ネイティブヘッダーは全画面で非表示（2026-07-12）：画面内のタイトルとヘッダーバーで
             同じ語が二重に表示される問題への対応。titleはブラウザタブ名としてのみ使われる。
             ナビゲーションは各画面のHomeLink＋「←」リンクが担う */}
@@ -32,3 +44,5 @@ export default function RootLayout() {
     </ThemeProvider>
   );
 }
+
+export default Sentry.wrap(RootLayout);

@@ -7,6 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { t } from '@/i18n';
+import { Sentry } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
 
 type Mode = 'login' | 'signup' | 'reset';
@@ -36,6 +37,8 @@ export default function LoginScreen() {
     });
     setBusy(false);
     if (authError) {
+      // メールアドレス・パスワードは送らず、失敗した事実とエラー種別のみ記録する
+      Sentry.captureException(new Error(`signIn failed: ${authError.message}`), { tags: { auth_action: 'signin' } });
       setError(t.login.failed(authError.message));
       return;
     }
@@ -51,6 +54,7 @@ export default function LoginScreen() {
     });
     setBusy(false);
     if (authError) {
+      Sentry.captureException(new Error(`signUp failed: ${authError.message}`), { tags: { auth_action: 'signup' } });
       setError(t.login.signupFailed(authError.message));
       return;
     }
@@ -65,6 +69,7 @@ export default function LoginScreen() {
     });
     setBusy(false);
     if (authError) {
+      Sentry.captureException(new Error(`resetPasswordForEmail failed: ${authError.message}`), { tags: { auth_action: 'reset' } });
       setError(t.login.resetFailed(authError.message));
       return;
     }

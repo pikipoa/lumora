@@ -190,7 +190,10 @@ export default function HomeScreen() {
                 onChangeText={setQuery}
                 onSubmitEditing={runSearch}
                 returnKeyType="search"
-                autoFocus={Platform.OS === 'web'}
+                // モバイルWebでは自動フォーカスが仮想キーボードを毎回強制的に開いてしまい、
+                // ホームへ戻っただけで邪魔になる（2026-07-24、ピキさん実機報告）。
+                // 物理キーボードがあるデスクトップのみ自動フォーカスする
+                autoFocus={Platform.OS === 'web' && !isMobile}
                 testID="home-search-input"
               />
 

@@ -55,3 +55,18 @@ export function captureEdgeFunctionError(
     extra: meta,
   });
 }
+
+/**
+ * AI利用上限に達した事実だけを記録する（クラッシュではないため`captureException`ではなく
+ * `captureMessage`＋warningレベルを使い、Issue一覧で障害と混同しないようにする）。
+ */
+export function captureQuotaExceeded(functionName: string, userId: string, currentCount: number, limit: number) {
+  if (!DSN) return;
+  ensureInit();
+  Sentry.captureMessage(`AI利用上限に到達: ${functionName}`, {
+    level: 'warning',
+    tags: { edge_function: functionName, event_type: 'quota_exceeded' },
+    extra: { current_count: currentCount, limit },
+    user: { id: userId },
+  });
+}

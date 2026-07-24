@@ -47,3 +47,5 @@ example
 
 .vercel
 .env*
+
+.env.local

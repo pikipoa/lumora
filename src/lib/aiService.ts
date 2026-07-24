@@ -18,6 +18,8 @@ export interface OrganizeMarkersResult {
   markers_processed?: number;
   tags_proposed?: number;
   error?: string;
+  /** AI利用上限（原価防御）に達した場合true。想定内の状態なのでSentryへは送らない */
+  quotaExceeded?: boolean;
 }
 
 export async function organizeMarkers(markerIds: string[]): Promise<OrganizeMarkersResult> {
@@ -29,14 +31,20 @@ export async function organizeMarkers(markerIds: string[]): Promise<OrganizeMark
   if (error) {
     // FunctionsHttpErrorの場合、レスポンス本文にエラー詳細が入っている
     let detail = error.message;
+    let status: number | undefined;
     try {
       const ctx = (error as { context?: Response }).context;
       if (ctx) {
+        status = ctx.status;
         const body = await ctx.json();
         if (body?.error) detail = body.error;
       }
     } catch {
       // 本文が読めなければ元のメッセージのまま
+    }
+    if (status === 429) {
+      // 利用上限は想定内の状態（サーバー側でcaptureQuotaExceeded済み）。クラッシュ扱いにしない
+      return { ok: false, error: detail, quotaExceeded: true };
     }
     Sentry.captureException(new Error(`organize-markers failed: ${detail}`), { tags: { edge_function: 'organize-markers' } });
     return { ok: false, error: detail };
@@ -58,6 +66,8 @@ export interface OrganizeWingsResult {
   wings_proposed?: number;
   new_wings_created?: number;
   error?: string;
+  /** AI利用上限（原価防御）に達した場合true。想定内の状態なのでSentryへは送らない */
+  quotaExceeded?: boolean;
 }
 
 export async function organizeWings(projectId: string): Promise<OrganizeWingsResult> {
@@ -67,14 +77,19 @@ export async function organizeWings(projectId: string): Promise<OrganizeWingsRes
   });
   if (error) {
     let detail = error.message;
+    let status: number | undefined;
     try {
       const ctx = (error as { context?: Response }).context;
       if (ctx) {
+        status = ctx.status;
         const body = await ctx.json();
         if (body?.error) detail = body.error;
       }
     } catch {
       // 本文が読めなければ元のメッセージのまま
+    }
+    if (status === 429) {
+      return { ok: false, error: detail, quotaExceeded: true };
     }
     Sentry.captureException(new Error(`organize-wings failed: ${detail}`), { tags: { edge_function: 'organize-wings' } });
     return { ok: false, error: detail };

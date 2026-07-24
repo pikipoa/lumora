@@ -176,13 +176,22 @@ export default function ProjectDetailScreen() {
     setOrganizing(true);
     setOrganizeNote(null);
     if (untaggedMarkerIds.length > 0) {
-      await organizeMarkers(untaggedMarkerIds.slice(0, 50));
+      const tagResult = await organizeMarkers(untaggedMarkerIds.slice(0, 50));
+      if (!tagResult.ok) {
+        setOrganizing(false);
+        setOrganizeNote(
+          tagResult.quotaExceeded ? t.realmDetail.organizeQuotaExceeded : t.common.error(tagResult.error ?? t.common.unknownError),
+        );
+        return;
+      }
     }
     const result = await organizeWings(id);
     setOrganizing(false);
     if (result.ok) {
       setOrganizeNote(t.realmDetail.organizeDone(result.wings_proposed ?? 0));
       load();
+    } else if (result.quotaExceeded) {
+      setOrganizeNote(t.realmDetail.organizeQuotaExceeded);
     } else {
       setOrganizeNote(t.common.error(result.error ?? t.common.unknownError));
     }

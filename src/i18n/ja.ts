@@ -186,6 +186,7 @@ export const ja = {
     organizeTitle: 'Knowledge Organize',
     organizeSubtitle: 'AIが知識を整理しています',
     organizeDone: (n: number) => `Wing候補を${n}件提案しました`,
+    organizeQuotaExceeded: '本日のAI整理はすでに上限まで使いました。日付が変わると再度使えます。',
     candidatesHeading: (n: number) => `Wing候補の確認 ${n}`,
     otherWing: '別のWingへ…',
     unorganizedHeading: (n: number) => `未整理 ${n}`,

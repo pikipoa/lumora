@@ -33,7 +33,15 @@
           "imageWidth": 76
         }
       ],
-      "@sentry/react-native"
+      "@sentry/react-native",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "react-native",
+          "organization": "piki-0w"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

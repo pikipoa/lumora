@@ -22,7 +22,8 @@
 import Anthropic from 'npm:@anthropic-ai/sdk';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-import { captureEdgeFunctionError, withSentry } from '../_shared/sentry.ts';
+import { checkAndIncrementAiUsage } from '../_shared/ai-usage.ts';
+import { captureEdgeFunctionError, captureQuotaExceeded, withSentry } from '../_shared/sentry.ts';
 
 const MODEL = Deno.env.get('LUMORA_AI_MODEL') ?? 'claude-sonnet-5';
 
@@ -118,6 +119,21 @@ Deno.serve(withSentry('organize-markers', async (req: Request) => {
   const { data: userData, error: userError } = await supabase.auth.getUser(jwt);
   if (userError || !userData.user) return json({ error: '認証が必要です' }, 401);
   const userId = userData.user.id;
+
+  // 0) AI利用上限チェック（クライアントではなくここで判定。原価防御）
+  try {
+    const usage = await checkAndIncrementAiUsage(supabase, userId, 'organize-markers');
+    if (!usage.allowed) {
+      captureQuotaExceeded('organize-markers', userId, usage.currentCount, usage.limit);
+      return json(
+        { error: `本日のAI整理の上限（${usage.limit}回）に達しました。日付が変わると再度利用できます。` },
+        429,
+      );
+    }
+  } catch (e) {
+    captureEdgeFunctionError('organize-markers', e, { stage: 'usage_check' });
+    // 利用回数の記録自体の失敗では処理を止めない（可用性優先、CLAUDE.md 2-4）
+  }
 
   let markerIds: string[];
   try {

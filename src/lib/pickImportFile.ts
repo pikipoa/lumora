@@ -38,15 +38,22 @@ export async function pickImportFile(): Promise<ImportFile | null> {
   const asset = res.assets[0];
 
   if (Platform.OS === 'web') {
-    // Webはpickerが返すFileオブジェクト（無ければblob: URIをfetch）から読む
+    // Webはpickerが返すFileオブジェクト（無ければblob: URIをfetch）から読む。
+    // File.lastModifiedはブラウザ標準のファイル最終更新日時（ms epoch）で、
+    // Perplexity/汎用ドキュメントのように本文に日付情報が無い形式のフォールバックに使う
     if (asset.file) {
-      return { name: asset.name, bytes: new Uint8Array(await asset.file.arrayBuffer()) };
+      return {
+        name: asset.name,
+        bytes: new Uint8Array(await asset.file.arrayBuffer()),
+        lastModified: asset.file.lastModified ?? null,
+      };
     }
     const resp = await fetch(asset.uri);
-    return { name: asset.name, bytes: new Uint8Array(await resp.arrayBuffer()) };
+    return { name: asset.name, bytes: new Uint8Array(await resp.arrayBuffer()), lastModified: null };
   }
 
   const { File } = await import('expo-file-system');
   const file = new File(asset.uri);
-  return { name: asset.name, bytes: await file.bytes() };
+  // ネイティブ版は未着手（Phase1はWeb版のみ）のため、最終更新日時の取得は今回対応しない
+  return { name: asset.name, bytes: await file.bytes(), lastModified: null };
 }

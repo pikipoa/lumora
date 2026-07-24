@@ -52,6 +52,13 @@ export interface ParseResult {
 export interface ImportFile {
   name: string;
   bytes: Uint8Array;
+  /**
+   * ファイルの最終更新日時（ミリ秒epoch）。取得できなければnull。
+   * Perplexity/汎用ドキュメントのように本文に日付情報が無い形式で、
+   * 会話の日付をインポート時刻ではなく実際に書かれた時期に近づけるためのフォールバックに使う
+   * （2026-07-24、スマホから個人メモを取り込んだ際に日付が壊れて見える不具合の対応）。
+   */
+  lastModified: number | null;
 }
 
 /**

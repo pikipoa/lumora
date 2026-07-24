@@ -34,8 +34,20 @@ export function parseImportFile(file: ImportFile): ImportOutcome {
       }
       return { ok: true, result };
     }
-    case 'perplexity':
-      return { ok: true, result: parsePerplexity(detected.markdown, detected.fileName) };
+    case 'perplexity': {
+      const result = parsePerplexity(detected.markdown, detected.fileName);
+      // Perplexity実エクスポート/汎用ドキュメントとも本文に日付情報が無いため、
+      // インポート時刻（＝常に「今」になり古いメモほど不自然）ではなく、
+      // ファイルの最終更新日時をフォールバックの会話日時として使う
+      if (file.lastModified != null) {
+        const fallback = new Date(file.lastModified).toISOString();
+        for (const conv of result.conversations) {
+          conv.createdAt ??= fallback;
+          for (const msg of conv.messages) msg.createdAt ??= fallback;
+        }
+      }
+      return { ok: true, result };
+    }
     case 'claude_code':
       return { ok: true, result: parseClaudeCode(detected.jsonl, detected.fileName) };
     case 'unsupported':

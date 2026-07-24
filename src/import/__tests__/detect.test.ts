@@ -8,11 +8,11 @@ function zipFile(name: string, entries: Record<string, string>): ImportFile {
   for (const [path, content] of Object.entries(entries)) {
     zipEntries[path] = strToU8(content);
   }
-  return { name, bytes: zipSync(zipEntries) };
+  return { name, bytes: zipSync(zipEntries), lastModified: null };
 }
 
 function textFile(name: string, content: string): ImportFile {
-  return { name, bytes: strToU8(content) };
+  return { name, bytes: strToU8(content), lastModified: null };
 }
 
 const chatgptJson = JSON.stringify([{ title: 't', mapping: {}, current_node: 'x' }]);
@@ -102,7 +102,11 @@ describe('detectFormat', () => {
   });
 
   test('壊れたZIPは案内付きで弾く（例外を投げない）', () => {
-    const file: ImportFile = { name: 'broken.zip', bytes: new Uint8Array([0x50, 0x4b, 0x00, 0x00, 0x01]) };
+    const file: ImportFile = {
+      name: 'broken.zip',
+      bytes: new Uint8Array([0x50, 0x4b, 0x00, 0x00, 0x01]),
+      lastModified: null,
+    };
     expect(detectFormat(file).kind).toBe('unsupported');
   });
 });
@@ -131,5 +135,24 @@ describe('parseImportFile（エントリーポイント統合）', () => {
     const outcome = parseImportFile(textFile('photo.png', 'binary'));
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.guidance).toBeTruthy();
+  });
+
+  test('汎用ドキュメントは本文に日付が無いため、ファイルの最終更新日時をcreatedAtのフォールバックに使う', () => {
+    const lastModified = new Date('2024-03-15T00:00:00Z').getTime();
+    const file: ImportFile = { name: 'memo.md', bytes: strToU8('# メモ\n本文'), lastModified };
+    const outcome = parseImportFile(file);
+
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      const conv = outcome.result.conversations[0];
+      expect(conv.createdAt).toBe(new Date(lastModified).toISOString());
+      expect(conv.messages[0].createdAt).toBe(new Date(lastModified).toISOString());
+    }
+  });
+
+  test('最終更新日時が取れない場合はcreatedAtがnullのまま（インポート時刻へのフォールバックはService層に委ねる）', () => {
+    const outcome = parseImportFile(textFile('memo.md', '# メモ\n本文'));
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) expect(outcome.result.conversations[0].createdAt).toBeNull();
   });
 });

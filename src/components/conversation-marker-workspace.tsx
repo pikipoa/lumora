@@ -158,6 +158,18 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     return () => clearTimeout(timer);
   }, [jumpToMarkerId, loading]);
 
+  // 整理待ち等からの遷移で着地したマーカーがRealm未割当なら、その場でRealm選択ステップを
+  // 自動的に開く（2026-07-24、ピキさんUXフィードバック）。従来は再度テキストを選び直して
+  // 色を選び直さないとRealm選択肢が出ず、「マーカーを確認しに来ても何をしていいか
+  // わからない」導線のギャップになっていた。読み込み完了時に一度だけ判定する
+  // （markersを依存に含めると、Realm割当後のリロードのたびにスクロールし直してしまう）
+  useEffect(() => {
+    if (!jumpToMarkerId || loading) return;
+    const target = markers.find((m) => m.id === jumpToMarkerId);
+    if (target && !target.project_id) setRealmPickerMarkerId(jumpToMarkerId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpToMarkerId, loading]);
+
   // 検索結果からのピーク：検索語を含む最初のメッセージを特定し、そこへスクロールする。
   // search_conversationsは会話単位のヒットしか返さないため、メッセージ本文はここで
   // 改めてクライアント側スキャンする（RPC/スキーマは変更しない）

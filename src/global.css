@@ -7,3 +7,13 @@
   --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
 }
+
+/* ダークモードではブラウザ標準の選択ハイライト（白系）が背景から浮いて「白飛び」して見える
+   （2026-07-24、ピキさんUXフィードバック：マーカーの色を選び直す操作でネイティブテキスト
+   選択が復元される際に発生）。テーマ配色に合わせた選択色を明示する */
+@media (prefers-color-scheme: dark) {
+  ::selection {
+    background: #2A3F66;
+    color: #E8ECF5;
+  }
+}

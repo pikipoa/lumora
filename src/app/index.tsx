@@ -26,6 +26,7 @@ import { ThemedView } from '@/components/themed-view';
 import { ChronicleIcon, RealmIcon } from '@/components/type-icon';
 import { UnlockCelebration } from '@/components/unlock-celebration';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
 import { useAuth } from '@/lib/auth-context';
@@ -45,6 +46,7 @@ export default function HomeScreen() {
   const { session, loading } = useAuth();
   const router = useRouter();
   const theme = useTheme();
+  const isMobile = useIsMobile();
 
   const [counts, setCounts] = useState<UnlockCounts | null>(null);
   const [seenFlags, setSeenFlags] = useState<SeenFlags>({ arcaChronicle: false, realm: false });
@@ -127,6 +129,21 @@ export default function HomeScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      {/* デスクトップ幅限定の設定エントリーポイント（settings-ia.md「1. エントリーポイント」）。
+          モバイル幅は下部タブバーの⚙️に一本化しているためここには出さない。Settingsの唯一の
+          機能（マーカー色の意味登録）はマーカーを引いた後でないと意味を持たないため、
+          タブバーのSettingsタブと同じくChronicle解放と同時に現れる */}
+      {!isMobile && seenFlags.arcaChronicle && (
+        <Pressable
+          onPress={() => router.push('/settings')}
+          style={styles.settingsButton}
+          testID="settings-gear"
+        >
+          <ThemedText themeColor="textSecondary" style={styles.settingsGlyph}>
+            ⚙
+          </ThemedText>
+        </Pressable>
+      )}
       <SafeAreaView style={styles.safeArea}>
         {counts === null ? (
           <View style={styles.center}>
@@ -233,6 +250,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.five,
   },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.four },
+  settingsButton: { position: 'absolute', top: Spacing.four, right: Spacing.four, zIndex: 1 } as object,
+  settingsGlyph: { fontSize: 20 },
   topSpace: { flex: 1 },
   bottomSpace: { flex: 2 },
   main: { gap: Spacing.five },

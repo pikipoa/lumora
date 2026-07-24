@@ -31,6 +31,7 @@ export const ja = {
     realmDetail: 'Realm',
     search: 'Search',
     chronicles: 'Chronicle',
+    settings: '設定',
   },
 
   sources: {
@@ -234,6 +235,13 @@ export const ja = {
     pendingHeading: (n: number) => `整理待ち ${n}`,
     empty: 'まだマーカーが付いた会話がありません。',
     markerCount: (n: number) => ` ・ マーカー${n}`,
+  },
+
+  settings: {
+    title: '色の意味',
+    subtitle: 'すでに無意識に使い分けている色に、自分の言葉で意味をつけておけます。未設定のままでも、今まで通り色だけで使えます。',
+    descriptionPlaceholder: '補足があれば',
+    saved: '保存しました',
   },
 
   celebrations: {

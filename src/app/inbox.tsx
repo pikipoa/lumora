@@ -63,7 +63,7 @@ function groupByMonth(rows: ConversationRow[]): { title: string; data: Conversat
 export default function InboxScreen() {
   const { session, loading } = useAuth();
   const router = useRouter();
-  const { projectId } = useLocalSearchParams<{ projectId?: string }>();
+  const { projectId, batchId } = useLocalSearchParams<{ projectId?: string; batchId?: string }>();
 
   const [rows, setRows] = useState<ConversationRow[] | null>(null);
   const [headerLabel, setHeaderLabel] = useState(t.inbox.titleInbox);
@@ -83,7 +83,12 @@ export default function InboxScreen() {
 
     query = showHeld ? query.not('held_at', 'is', null) : query.is('held_at', null);
 
-    if (projectId) {
+    if (batchId) {
+      // インポート直後「取り込んだデータどこ？」に直接答えるための絞り込み（2026-07-24追加）。
+      // project_id/held_atの状態に関わらず、このバッチで入った会話だけを見せる
+      query = query.eq('import_batch_id', batchId);
+      setHeaderLabel(t.inbox.titleImportBatch);
+    } else if (projectId) {
       query = query.eq('project_id', projectId);
       const { data: project } = await supabase.from('projects').select('name').eq('id', projectId).single();
       setHeaderLabel(project ? t.inbox.titleRealm(project.name) : t.inbox.titleRealmFallback);
@@ -94,7 +99,7 @@ export default function InboxScreen() {
 
     const { data: conversations } = await query;
     setRows(conversations ?? []);
-  }, [projectId, showHeld]);
+  }, [projectId, batchId, showHeld]);
 
   useEffect(() => {
     if (session) load();

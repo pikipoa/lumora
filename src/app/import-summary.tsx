@@ -62,8 +62,17 @@ export default function ImportSummaryScreen() {
           </ThemedView>
         )}
 
-        <Pressable style={styles.button} onPress={() => router.replace('/')} testID="back-home-button">
-          <ThemedText style={styles.buttonText}>{t.importSummary.backHome}</ThemedText>
+        {summary.succeeded > 0 && (
+          <Pressable
+            style={styles.button}
+            onPress={() => router.replace({ pathname: '/inbox', params: { batchId: summary.batchId } })}
+            testID="view-imported-button"
+          >
+            <ThemedText style={styles.buttonText}>{t.importSummary.viewImported(summary.succeeded)}</ThemedText>
+          </Pressable>
+        )}
+        <Pressable style={styles.buttonSecondary} onPress={() => router.replace('/')} testID="back-home-button">
+          <ThemedText style={styles.buttonSecondaryText}>{t.importSummary.backHome}</ThemedText>
         </Pressable>
       </ScrollView>
     </ThemedView>
@@ -82,4 +91,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonText: { color: '#fff', fontWeight: '600' },
+  buttonSecondary: { padding: Spacing.three, alignItems: 'center' },
+  buttonSecondaryText: { fontWeight: '600', opacity: 0.7 },
 });

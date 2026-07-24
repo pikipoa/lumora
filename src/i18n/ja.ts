@@ -126,15 +126,17 @@ export const ja = {
     sourceBadge: (label: string) => `出典: ${label}`,
     headline: (total: number, succeeded: number) => `${total}件中${succeeded}件を正常にインポートしました`,
     skipped: (n: number) => `${n}件は形式エラー等のためスキップされました`,
-    note: 'インポートした会話は未分類（Inbox）に入っています。Realm（プロジェクト）への割り当てとレビューは、レビュー画面の実装後にここから直接始められるようになります。',
+    note: '取り込んだ会話は、下のボタンから今すぐ確認できます。横断検索から見つけて本文を選択すると、マーカー（Arca）を作成できます。',
     skippedTitle: 'スキップされた会話',
     warningsTitle: (n: number) => `警告（${n}件）`,
     moreWarnings: (n: number) => `…ほか${n}件`,
+    viewImported: (n: number) => `取り込んだ${n}件の会話を見る`,
     backHome: 'ホームへ戻る',
   },
 
   inbox: {
     titleInbox: '未分類（Inbox）',
+    titleImportBatch: '今回インポートした会話',
     titleRealm: (name: string) => `${name}：割り当て済みの会話`,
     titleRealmFallback: 'プロジェクト内の会話',
     heldSuffix: (label: string) => `${label}（保留一覧）`,

@@ -19,6 +19,7 @@ import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, useWindowDime
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
 import { offsetsToRange, rangeToOffsets } from '@/lib/domSelection';
 import { computeSegments, locateQuotedText, type MarkerLayer } from '@/lib/markerLayout';
@@ -88,6 +89,7 @@ interface Props {
 }
 
 export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, searchTerm, compact, onLoaded }: Props) {
+  const theme = useTheme();
   const [jumpedMarkerId, setJumpedMarkerId] = useState<string | null>(null);
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
   const [messages, setMessages] = useState<MessageRow[]>([]);
@@ -431,7 +433,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                   messageRefs.current[m.id] = el;
                 }}
               >
-                <Text selectable style={styles.messageText}>
+                <Text selectable style={[styles.messageText, { color: theme.text }]}>
                   {segments.map((seg, i) => {
                     const segStart = cursor;
                     cursor += seg.text.length;

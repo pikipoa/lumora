@@ -63,6 +63,13 @@ export default function SearchScreen() {
   // シートを閉じても検索結果一覧・スクロール位置・並び替え状態はそのまま保たれる
   const [peekConversationId, setPeekConversationId] = useState<string | null>(null);
   const [sortOpen, setSortOpen] = useState(false);
+  // 取り込み元での絞り込み（2026-07-24、ピキさんの着想：複数社を一括インポートしていると
+  // 目的のAI由来の会話だけを見たい場面があり、より正確に絞り込めるようにする）。
+  // 空集合＝絞り込みなし（全件表示）。sourceは一次情報そのものの属性であり、後から人間が
+  // 付与するRealm/Wing/Tagとは異なるため、search-spec.mdの「整理後の構造は検索対象・結果に
+  // 混ぜない」原則とは衝突しない
+  const [sourceFilter, setSourceFilter] = useState<Set<string>>(new Set());
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const runSearch = useCallback(async () => {
     const trimmed = query.trim();
@@ -75,6 +82,7 @@ export default function SearchScreen() {
     const { data } = await supabase.rpc('search_conversations', { search_query: trimmed });
     setResults((data as ResultRow[]) ?? []);
     setSearchedQuery(trimmed);
+    setSourceFilter(new Set());
     setSearching(false);
   }, [query]);
 
@@ -83,9 +91,20 @@ export default function SearchScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const sorted = useMemo(() => {
+  const availableSources = useMemo(
+    () => [...new Set((results ?? []).map((r) => r.source))],
+    [results],
+  );
+
+  const filtered = useMemo(() => {
     if (!results) return null;
-    const rows = [...results];
+    if (sourceFilter.size === 0) return results;
+    return results.filter((r) => sourceFilter.has(r.source));
+  }, [results, sourceFilter]);
+
+  const sorted = useMemo(() => {
+    if (!filtered) return null;
+    const rows = [...filtered];
     const time = (r: ResultRow) => new Date(r.created_at ?? r.imported_at).getTime();
     switch (sortKey) {
       case 'new':
@@ -97,7 +116,16 @@ export default function SearchScreen() {
       case 'short':
         return rows.sort((a, b) => a.total_chars - b.total_chars);
     }
-  }, [results, sortKey]);
+  }, [filtered, sortKey]);
+
+  function toggleSourceFilter(source: string) {
+    setSourceFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(source)) next.delete(source);
+      else next.add(source);
+      return next;
+    });
+  }
 
   if (!loading && !session) return <Redirect href="/login" />;
 
@@ -132,10 +160,20 @@ export default function SearchScreen() {
             <ThemedText type="small" themeColor="textSecondary">
               {t.common.items(sorted.length)}
             </ThemedText>
-            {sorted.length > 1 && (
+            {(results?.length ?? 0) > 1 && (
               <Pressable onPress={() => setSortOpen((v) => !v)} testID="sort-toggle">
                 <ThemedText type="small" themeColor="textSecondary">
                   {currentSortLabel} ▾
+                </ThemedText>
+              </Pressable>
+            )}
+            {availableSources.length > 1 && (
+              <Pressable onPress={() => setFilterOpen((v) => !v)} testID="filter-toggle">
+                <ThemedText type="small" themeColor="textSecondary">
+                  {sourceFilter.size === 0
+                    ? t.searchScreen.filterAll
+                    : [...sourceFilter].map((s) => t.sources[s] ?? s).join('・')}{' '}
+                  ▾
                 </ThemedText>
               </Pressable>
             )}
@@ -155,6 +193,28 @@ export default function SearchScreen() {
                 testID={`sort-${o.key}`}
               >
                 <ThemedText type="small">{o.label}</ThemedText>
+              </Pressable>
+            ))}
+          </ThemedView>
+        )}
+
+        {filterOpen && (
+          <ThemedView style={styles.row}>
+            <Pressable
+              style={[styles.chip, { borderColor: theme.backgroundSelected }, sourceFilter.size === 0 && styles.chipActive]}
+              onPress={() => setSourceFilter(new Set())}
+              testID="source-filter-all"
+            >
+              <ThemedText type="small">{t.searchScreen.filterAll}</ThemedText>
+            </Pressable>
+            {availableSources.map((s) => (
+              <Pressable
+                key={s}
+                style={[styles.chip, { borderColor: theme.backgroundSelected }, sourceFilter.has(s) && styles.chipActive]}
+                onPress={() => toggleSourceFilter(s)}
+                testID={`source-filter-${s}`}
+              >
+                <ThemedText type="small">{t.sources[s] ?? s}</ThemedText>
               </Pressable>
             ))}
           </ThemedView>

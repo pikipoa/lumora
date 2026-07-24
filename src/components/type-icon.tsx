@@ -88,6 +88,40 @@ export function ChronicleIcon({ size = 16, color, pressTrigger }: TypeIconProps)
 }
 
 /**
+ * RealmIcon/ChronicleIconの静止版（アニメーションなし）。
+ *
+ * 【2026-07-24、不具合修正】react-native-reanimatedのAnimated.Viewが、条件付きレンダーで
+ * 大きなサブツリーごと一括アンマウントされる文脈（例：Realm詳細画面のWing表示⇄Realm概要の
+ * 切り替え、下部タブバーの項目リスト変化）に置かれると、React側のDOM除去とReanimated側の
+ * Web実装（DOM要素を直接操作するworklet相当の仕組み）が競合し、
+ * `NotFoundError: Failed to execute 'removeChild' on 'Node'`で画面全体がクラッシュする
+ * 不具合が実機で確認された（Sentryのスタックトレースで特定）。pressTriggerを渡さず
+ * アニメーション自体を使わない箇所（Wingカードのインラインアイコン、下部タブバーの
+ * ナビゲーションアイコン等）では、この静止版を使うことでReanimatedへの依存を断ち切る。
+ * pressTriggerで実際に演出させたい箇所（ホーム画面の統計行）は引き続きRealmIcon/
+ * ChronicleIconを使う。
+ */
+export function RealmGlyph({ size = 16, color }: { size?: number; color: string }) {
+  return (
+    <View style={[styles.container, { width: size, height: size }]}>
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.6} />
+      </Svg>
+    </View>
+  );
+}
+
+export function ChronicleGlyph({ size = 16, color }: { size?: number; color: string }) {
+  return (
+    <View style={[styles.container, { width: size, height: size }]}>
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Rect x={4} y={4} width={16} height={16} stroke={color} strokeWidth={1.6} />
+      </Svg>
+    </View>
+  );
+}
+
+/**
  * Beacon（Phase2バックログ、VISION.md 9章）：双三角錐。形のみ実装済み。
  * Beacon機能自体がまだ存在しないため、どの画面からも呼ばれていない（未使用エクスポート）。
  * 検索中の演出（上下の三角が離れて逆回転、中央に光が集まる）はBeacon着手時に設計する。

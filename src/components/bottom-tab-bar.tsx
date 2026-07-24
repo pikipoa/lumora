@@ -23,7 +23,7 @@ import { type ReactElement } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { ChronicleIcon, RealmIcon } from '@/components/type-icon';
+import { ChronicleGlyph, RealmGlyph } from '@/components/type-icon';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { SeenFlags } from '@/lib/unlocks';
@@ -42,8 +42,8 @@ export function BottomTabBar({ seenFlags }: Props) {
   const items: { key: string; href: '/' | '/chronicles' | '/projects' | '/settings'; Icon: (p: { size: number; color: string }) => ReactElement }[] = [
     { key: 'home', href: '/', Icon: HomeGlyph },
   ];
-  if (seenFlags.arcaChronicle) items.push({ key: 'chronicle', href: '/chronicles', Icon: ChronicleIcon });
-  if (seenFlags.realm) items.push({ key: 'realm', href: '/projects', Icon: RealmIcon });
+  if (seenFlags.arcaChronicle) items.push({ key: 'chronicle', href: '/chronicles', Icon: ChronicleGlyph });
+  if (seenFlags.realm) items.push({ key: 'realm', href: '/projects', Icon: RealmGlyph });
   if (seenFlags.arcaChronicle) items.push({ key: 'settings', href: '/settings', Icon: SettingsGlyph });
 
   return (

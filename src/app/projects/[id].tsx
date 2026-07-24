@@ -22,7 +22,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 
 import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { ChronicleIcon } from '@/components/type-icon';
+import { ChronicleGlyph } from '@/components/type-icon';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
@@ -732,7 +732,7 @@ export default function ProjectDetailScreen() {
                             testID={`view-source-${marker.id}`}
                             accessibilityLabel={t.realmDetail.viewSource}
                           >
-                            <ChronicleIcon size={18} color={theme.textSecondary} />
+                            <ChronicleGlyph size={18} color={theme.textSecondary} />
                           </Pressable>
                           <Pressable
                             onPress={() => setAiPanelMarkerId(aiPanelMarkerId === marker.id ? null : marker.id)}

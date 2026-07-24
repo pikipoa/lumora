@@ -22,6 +22,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 
 import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ChronicleIcon } from '@/components/type-icon';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
@@ -86,6 +87,10 @@ export default function ProjectDetailScreen() {
   // 本文編集中のマーカー（Wing詳細内）
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [textDraft, setTextDraft] = useState('');
+  // Wingカードは既定でWing名とArcaの本文だけを表示し、タップで操作アイコン列を出す
+  // （2026-07-24、ピキさんUXフィードバック。旧UIは会話タイトル・原文を見る/AI分析結果を見る/
+  // このWingから外す、が常時表示で「分かりにくい」との指摘があった）
+  const [expandedMarkerId, setExpandedMarkerId] = useState<string | null>(null);
   // 「AI分析結果を見る」パネルを開いているマーカー
   const [aiPanelMarkerId, setAiPanelMarkerId] = useState<string | null>(null);
   const [newTagName, setNewTagName] = useState('');
@@ -658,90 +663,100 @@ export default function ProjectDetailScreen() {
                 {t.realmDetail.emptyWing}
               </ThemedText>
             ) : (
-              wingMarkers.map(({ marker, mine, others }) => (
-                <ThemedView key={marker.id} style={styles.markerCard}>
-                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                    {marker.conversations?.title ?? ''}
-                  </ThemedText>
-
-                  {editingTextId === marker.id ? (
-                    <>
-                      <TextInput
-                        style={[styles.textArea, { borderColor: theme.backgroundSelected, backgroundColor: theme.background, color: theme.text }]}
-                        value={textDraft}
-                        onChangeText={setTextDraft}
-                        multiline
-                        testID={`edit-text-input-${marker.id}`}
-                      />
-                      <ThemedView style={styles.row}>
-                        <Pressable onPress={() => saveEditedText(marker)} testID={`edit-text-save-${marker.id}`}>
-                          <ThemedText type="linkPrimary">{t.common.save}</ThemedText>
-                        </Pressable>
-                        <Pressable onPress={() => setEditingTextId(null)}>
-                          <ThemedText type="small" themeColor="textSecondary">
-                            {t.common.cancel}
-                          </ThemedText>
-                        </Pressable>
+              wingMarkers.map(({ marker, mine, others }) => {
+                const isExpanded = expandedMarkerId === marker.id;
+                return (
+                  <ThemedView key={marker.id} style={styles.markerCard}>
+                    {editingTextId === marker.id ? (
+                      <>
+                        <TextInput
+                          style={[styles.textArea, { borderColor: theme.backgroundSelected, backgroundColor: theme.background, color: theme.text }]}
+                          value={textDraft}
+                          onChangeText={setTextDraft}
+                          multiline
+                          testID={`edit-text-input-${marker.id}`}
+                        />
+                        <ThemedView style={styles.row}>
+                          <Pressable onPress={() => saveEditedText(marker)} testID={`edit-text-save-${marker.id}`}>
+                            <ThemedText type="linkPrimary">{t.common.save}</ThemedText>
+                          </Pressable>
+                          <Pressable onPress={() => setEditingTextId(null)}>
+                            <ThemedText type="small" themeColor="textSecondary">
+                              {t.common.cancel}
+                            </ThemedText>
+                          </Pressable>
+                          {marker.edited_text && (
+                            <ThemedText type="small" themeColor="textSecondary">
+                              {t.realmDetail.editRevertHint}
+                            </ThemedText>
+                          )}
+                        </ThemedView>
+                      </>
+                    ) : (
+                      <Pressable
+                        onPress={() => setExpandedMarkerId(isExpanded ? null : marker.id)}
+                        testID={`marker-text-${marker.id}`}
+                      >
+                        <ThemedText>{displayText(marker)}</ThemedText>
                         {marker.edited_text && (
                           <ThemedText type="small" themeColor="textSecondary">
-                            {t.realmDetail.editRevertHint}
+                            {t.realmDetail.edited}
                           </ThemedText>
                         )}
-                      </ThemedView>
-                    </>
-                  ) : (
-                    <Pressable onPress={() => startEditingText(marker)} testID={`marker-text-${marker.id}`}>
-                      <ThemedText>{displayText(marker)}</ThemedText>
-                      {marker.edited_text && (
-                        <ThemedText type="small" themeColor="textSecondary">
-                          {t.realmDetail.edited}
-                        </ThemedText>
-                      )}
-                    </Pressable>
-                  )}
-
-                  {others.length > 0 && (
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {t.realmDetail.otherWings(
-                        others.map((o) => `${o.themes?.icon ?? '📖'} ${o.themes?.name}`).join('、'),
-                      )}
-                    </ThemedText>
-                  )}
-
-                  <ThemedView style={styles.row}>
-                    <Pressable
-                      onPress={() =>
-                        router.push({
-                          pathname: '/conversation/[id]',
-                          params: { id: marker.conversation_id, markerId: marker.id },
-                        })
-                      }
-                      testID={`view-source-${marker.id}`}
-                    >
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {t.realmDetail.viewSource}
-                      </ThemedText>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => setAiPanelMarkerId(aiPanelMarkerId === marker.id ? null : marker.id)}
-                      testID={`ai-panel-toggle-${marker.id}`}
-                    >
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {aiPanelMarkerId === marker.id ? t.realmDetail.aiPanelClose : t.realmDetail.aiPanelOpen}
-                      </ThemedText>
-                    </Pressable>
-                    {mine && (
-                      <Pressable onPress={() => setWingStatus(mine.id, 'rejected')} testID={`wing-marker-remove-${mine.id}`}>
-                        <ThemedText type="small" themeColor="textSecondary">
-                          {t.realmDetail.removeFromWing}
-                        </ThemedText>
                       </Pressable>
                     )}
-                  </ThemedView>
 
-                  {aiPanelMarkerId === marker.id && renderAiPanel(marker)}
-                </ThemedView>
-              ))
+                    {isExpanded && editingTextId !== marker.id && (
+                      <>
+                        {others.length > 0 && (
+                          <ThemedText type="small" themeColor="textSecondary">
+                            {t.realmDetail.otherWings(
+                              others.map((o) => `${o.themes?.icon ?? '📖'} ${o.themes?.name}`).join('、'),
+                            )}
+                          </ThemedText>
+                        )}
+
+                        <ThemedView style={styles.row}>
+                          <Pressable onPress={() => startEditingText(marker)} testID={`marker-edit-${marker.id}`}>
+                            <ThemedText style={styles.actionIcon} accessibilityLabel={t.common.edit}>
+                              ✏️
+                            </ThemedText>
+                          </Pressable>
+                          <Pressable
+                            onPress={() =>
+                              router.push({
+                                pathname: '/conversation/[id]',
+                                params: { id: marker.conversation_id, markerId: marker.id },
+                              })
+                            }
+                            testID={`view-source-${marker.id}`}
+                            accessibilityLabel={t.realmDetail.viewSource}
+                          >
+                            <ChronicleIcon size={18} color={theme.textSecondary} />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => setAiPanelMarkerId(aiPanelMarkerId === marker.id ? null : marker.id)}
+                            testID={`ai-panel-toggle-${marker.id}`}
+                          >
+                            <ThemedText type="small" themeColor="textSecondary">
+                              {aiPanelMarkerId === marker.id ? t.realmDetail.aiPanelClose : t.realmDetail.aiPanelOpen}
+                            </ThemedText>
+                          </Pressable>
+                          {mine && (
+                            <Pressable onPress={() => setWingStatus(mine.id, 'rejected')} testID={`wing-marker-remove-${mine.id}`}>
+                              <ThemedText type="small" themeColor="textSecondary">
+                                {t.realmDetail.removeFromWing}
+                              </ThemedText>
+                            </Pressable>
+                          )}
+                        </ThemedView>
+                      </>
+                    )}
+
+                    {aiPanelMarkerId === marker.id && renderAiPanel(marker)}
+                  </ThemedView>
+                );
+              })
             )}
           </>
         )}
@@ -799,6 +814,7 @@ const styles = StyleSheet.create({
   },
   iconChoiceActive: { borderColor: '#208AEF', backgroundColor: '#208AEF22' },
   markerCard: { gap: Spacing.one, paddingVertical: Spacing.two },
+  actionIcon: { fontSize: 16 },
   aiPanel: { gap: Spacing.two, paddingVertical: Spacing.two, paddingLeft: Spacing.three },
   textArea: {
     borderWidth: 1,

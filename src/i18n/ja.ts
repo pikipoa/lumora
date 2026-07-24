@@ -45,6 +45,7 @@ export const ja = {
 
   common: {
     save: '保存',
+    edit: '編集',
     cancel: 'キャンセル',
     create: '作成',
     add: '追加',
@@ -204,8 +205,8 @@ export const ja = {
     editRevertHint: '（空にして保存すると原文に戻ります）',
     otherWings: (names: string) => `他のWing: ${names}`,
     viewSource: '原文を見る',
-    aiPanelOpen: 'AI分析結果を見る',
-    aiPanelClose: 'AI分析結果を閉じる',
+    aiPanelOpen: 'AIの理解を確認',
+    aiPanelClose: '閉じる',
     removeFromWing: '✕ このWingから外す',
     aiPanelWing: 'Wing',
     aiPanelTags: 'AI Tags',

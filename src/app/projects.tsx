@@ -122,7 +122,7 @@ export default function ProjectsScreen() {
           projects.map((p) => (
             <Pressable
               key={p.id}
-              style={styles.card}
+              style={[styles.card, { backgroundColor: theme.backgroundElement }]}
               onPress={() => router.push({ pathname: '/projects/[id]', params: { id: p.id } })}
               testID={`project-${p.id}`}
             >
@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
     padding: Spacing.four,
     gap: Spacing.three,
   },
-  card: { borderRadius: Spacing.two, padding: Spacing.three, gap: Spacing.one, backgroundColor: '#F0F0F3' },
+  card: { borderRadius: Spacing.two, padding: Spacing.three, gap: Spacing.one },
   form: { borderRadius: Spacing.two, padding: Spacing.three, gap: Spacing.two },
   row: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
   input: {

@@ -82,7 +82,7 @@ export function parseClaudeCode(jsonl: string, fileName: string): ParseResult {
     }
 
     if (entry.type === 'assistant' && entry.message && Array.isArray(entry.message.content)) {
-      const textBlocks = (entry.message.content as Array<{ type?: string; text?: string }>)
+      const textBlocks = (entry.message.content as { type?: string; text?: string }[])
         .filter((b) => b && b.type === 'text' && typeof b.text === 'string' && b.text.trim())
         .map((b) => b.text as string);
       if (textBlocks.length > 0) {

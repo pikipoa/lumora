@@ -16,7 +16,7 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, Dimensions, Pressable, ScrollView, StyleSheet, useColorScheme } from 'react-native';
 
 import { ConversationMarkerWorkspace } from '@/components/conversation-marker-workspace';
@@ -34,8 +34,12 @@ interface Props {
 export function ConversationPeekSheet({ conversationId, searchTerm, onClose }: Props) {
   const router = useRouter();
   const scheme = useColorScheme();
-  const translateY = useRef(new Animated.Value(Dimensions.get('window').height)).current;
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  // useRef(...).currentではなくuseStateの遅延初期化を使う（2026-07-24、lint対応）。
+  // Animated.Valueを1回だけ作って以後は同じインスタンスを使い回すという意図は同じだが、
+  // render中のref.currentアクセスは新しいReact Compilerのreact-hooks/refsルールに
+  // 抵触するため、render中に読んでも安全なuseStateの値として持つ
+  const [translateY] = useState(() => new Animated.Value(Dimensions.get('window').height));
+  const [backdropOpacity] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     Animated.parallel([

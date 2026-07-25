@@ -8,7 +8,7 @@
  * 1〜2枚のカードを配列で受け取り、全て見終わるとonDoneを呼ぶ。
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, Pressable, StyleSheet, useColorScheme } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -23,7 +23,9 @@ interface Props {
 
 export function UnlockCelebration({ cards, onDone }: Props) {
   const [index, setIndex] = useState(0);
-  const opacity = useRef(new Animated.Value(0)).current;
+  // useRef(...).currentではなくuseStateの遅延初期化を使う（2026-07-24、lint対応。
+  // 詳細はconversation-peek-sheet.tsxの同種コメント参照）
+  const [opacity] = useState(() => new Animated.Value(0));
   const scheme = useColorScheme();
 
   useEffect(() => {

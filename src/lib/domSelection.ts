@@ -37,11 +37,34 @@ export function offsetsToRange(container: Node, start: number, end: number): Ran
   return range;
 }
 
+/**
+ * 選択範囲の境界点を、セグメント自身の開始位置（data-seg-start属性）＋セグメント内の
+ * ローカル文字数で解決する。以前はコンテナ全体を一度にRange.toString()で数える方式
+ * だったが、マーカー数が多い（＝本文が多数のセグメントに分割される）会話で、実際に
+ * 選択した位置と異なる数値が計算される不具合が実機ログで確認された（2026-07-26）。
+ * 各セグメントは自分の開始位置をdata-seg-start属性として持つ
+ * （conversation-marker-workspace.tsx）ため、境界点の祖先セグメントを見つけて
+ * ローカル計算するほうが、セグメント数に依存せず安定する。
+ */
+function resolvePointOffset(container: Node, node: Node, offset: number): number {
+  const el = (node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element)) ?? null;
+  const segEl = el?.closest('[data-seg-start]') as HTMLElement | null;
+  if (!segEl) {
+    // フォールバック：セグメントが見つからない場合は従来通りコンテナ全体で数える
+    const preRange = document.createRange();
+    preRange.selectNodeContents(container);
+    preRange.setEnd(node, offset);
+    return preRange.toString().length;
+  }
+  const segStart = Number(segEl.dataset.segStart ?? '0');
+  const localRange = document.createRange();
+  localRange.selectNodeContents(segEl);
+  localRange.setEnd(node, offset);
+  return segStart + localRange.toString().length;
+}
+
 export function rangeToOffsets(container: Node, range: Range): { start: number; end: number; text: string } {
-  const preRange = document.createRange();
-  preRange.selectNodeContents(container);
-  preRange.setEnd(range.startContainer, range.startOffset);
-  const start = preRange.toString().length;
-  const text = range.toString();
-  return { start, end: start + text.length, text };
+  const start = resolvePointOffset(container, range.startContainer, range.startOffset);
+  const end = resolvePointOffset(container, range.endContainer, range.endOffset);
+  return { start, end, text: range.toString() };
 }

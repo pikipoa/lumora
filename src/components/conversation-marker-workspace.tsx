@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -279,6 +279,28 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       const existing = markers.find((m) => m.id === editingMarkerId);
       const quotedText = pendingSelection.text || existing?.quoted_text;
       if (!quotedText) return;
+
+      // 保存直前の座標検証（2026-07-26、position drift対策）：rangeToOffsetsが計算した
+      // start_offset/end_offsetが実際のquoted_textと一致しない場合、ズレた位置のまま保存
+      // すると表示側で全く別の場所にマーカーが付く不具合になる。一致しなければ保存自体を
+      // 中止する（黙って誤った位置を保存しない）。
+      const sourceMessage = messages.find((msg) => msg.id === pendingSelection.messageId);
+      const sliceAtOffset = sourceMessage?.content.slice(pendingSelection.start, pendingSelection.end) ?? null;
+      if (sliceAtOffset !== quotedText) {
+        // eslint-disable-next-line no-console
+        console.error('[marker-debug] 座標検証NG（更新）：保存を中止しました', {
+          quotedText,
+          start: pendingSelection.start,
+          end: pendingSelection.end,
+          sliceAtOffset,
+        });
+        Alert.alert(
+          '保存を中止しました',
+          `マーカーの位置がズレて計算されたため保存しませんでした。\n選択テキスト: "${quotedText}"\n位置から取得した文字: "${sliceAtOffset}"`,
+        );
+        return;
+      }
+
       // 範囲・色・状態のいずれも変化していない場合は履歴を残さない（無駄な追記を避ける）
       const unchanged =
         existing && existing.quoted_text === quotedText && existing.color === color && existing.status === 'confirmed';
@@ -295,10 +317,30 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       if (!unchanged) await recordMarkerHistory(editingMarkerId, color, 'confirmed');
       if (existing && !existing.project_id) nextRealmPickerId = editingMarkerId;
     } else {
+      const quotedText = pendingSelection.text;
+
+      // 保存直前の座標検証（2026-07-26、position drift対策）。上の更新分岐と同じ理由。
+      const sourceMessage = messages.find((msg) => msg.id === pendingSelection.messageId);
+      const sliceAtOffset = sourceMessage?.content.slice(pendingSelection.start, pendingSelection.end) ?? null;
+      if (sliceAtOffset !== quotedText) {
+        // eslint-disable-next-line no-console
+        console.error('[marker-debug] 座標検証NG（新規作成）：保存を中止しました', {
+          quotedText,
+          start: pendingSelection.start,
+          end: pendingSelection.end,
+          sliceAtOffset,
+        });
+        Alert.alert(
+          '保存を中止しました',
+          `マーカーの位置がズレて計算されたため保存しませんでした。\n選択テキスト: "${quotedText}"\n位置から取得した文字: "${sliceAtOffset}"`,
+        );
+        return;
+      }
+
       const insertPayload = {
         conversation_id: conversationId,
         message_id: pendingSelection.messageId,
-        quoted_text: pendingSelection.text,
+        quoted_text: quotedText,
         color,
         status: 'confirmed',
         proposed_by: 'human',
@@ -306,18 +348,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         start_offset: pendingSelection.start,
         end_offset: pendingSelection.end,
       };
-      // eslint-disable-next-line no-console
-      console.log('[marker-debug] 1) 送信データ: ' + JSON.stringify(insertPayload, null, 2));
-      const { data: created, error: insertError } = await supabase
-        .from('markers')
-        .insert(insertPayload)
-        .select('*')
-        .single();
-      // eslint-disable-next-line no-console
-      console.log(
-        '[marker-debug] 2) INSERT直後のDB保存データ: ' +
-          JSON.stringify({ created, insertError: insertError?.message ?? null }, null, 2),
-      );
+      const { data: created } = await supabase.from('markers').insert(insertPayload).select('id').single();
       if (created) {
         await recordMarkerHistory(created.id, color, 'confirmed');
         nextRealmPickerId = created.id;
@@ -488,6 +519,12 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                   {segments.map((seg, i) => {
                     const segStart = cursor;
                     cursor += seg.text.length;
+                    // 各セグメントに自分の開始位置をDOM属性として埋め込む。選択範囲→文字位置の
+                    // 変換（rangeToOffsets）はこの属性を手がかりに「セグメント内のローカル位置＋
+                    // セグメントの開始位置」で計算する（コンテナ全体を一度に数える方式は、
+                    // セグメント数が多い会話で実際にズレることが実機ログで確認されたため変更。
+                    // 2026-07-26）。RNの<Text>型にdataSetは無いためobjectとして渡す。
+                    const segDataSetProps: object = { dataSet: { segStart: String(segStart) } };
 
                     if (!seg.layer) {
                       // 検索語ハイライト：マーカーが無い区間の中に検索ヒットがあれば、
@@ -501,7 +538,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                         const hitStart = Math.max(0, searchMatch.start - segStart);
                         const hitEnd = Math.min(seg.text.length, searchMatch.end - segStart);
                         return (
-                          <Text key={i}>
+                          <Text key={i} {...segDataSetProps}>
                             {seg.text.slice(0, hitStart)}
                             <Text style={styles.searchMatch} testID="search-match-highlight">
                               {seg.text.slice(hitStart, hitEnd)}
@@ -510,7 +547,11 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                           </Text>
                         );
                       }
-                      return seg.text;
+                      return (
+                        <Text key={i} {...segDataSetProps}>
+                          {seg.text}
+                        </Text>
+                      );
                     }
 
                     const isProposed = seg.layer.kind === 'proposed';
@@ -520,6 +561,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                     return (
                       <Text
                         key={i}
+                        {...segDataSetProps}
                         onPress={() => startEditingMarker(m.id, seg.layer!)}
                         style={[
                           { backgroundColor: bg },

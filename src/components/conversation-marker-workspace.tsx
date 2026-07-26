@@ -492,7 +492,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         {messages.map((m) => {
           const layersForMessage = layersByMessage[m.id] ?? [];
           const segments = computeSegments(m.content, layersForMessage);
-          let cursor = 0;
           return (
             <ThemedView key={m.id} style={styles.messageRow}>
               <ThemedText type="small" themeColor="textSecondary">
@@ -506,10 +505,12 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
               >
                 <Text selectable style={[styles.messageText, { color: theme.text }]}>
                   {segments.map((seg, i) => {
-                    const segStart = cursor;
-                    cursor += seg.text.length;
-                    // data-seg-startは計算には使わず、DOM調査用の目印としてのみ付与する
-                    // （2026-07-26、TreeWalker列挙ダンプ用）
+                    // 開始位置は純粋関数computeSegmentsが確定させた値を読むだけにする。
+                    // 以前はここで `let cursor` を加算しながら求めていたが、React Compiler
+                    // 有効下ではrender中の変数書き換えが壊れ、DOMのdata-seg-startが
+                    // 単調増加しなくなっていた（詳細：markerLayout.ts TextSegment.start）。
+                    const segStart = seg.start;
+                    // 選択範囲→文字位置の変換（rangeToOffsets）がこの属性を土台に使う
                     const segDiagProps: object = { dataSet: { segStart: String(segStart) } };
 
                     if (!seg.layer) {

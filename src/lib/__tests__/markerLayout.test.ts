@@ -219,6 +219,44 @@ describe('findSegmentInvariantViolations（不変条件チェック自体の検�
     const violations = findSegmentInvariantViolations(content, broken);
     expect(violations.some((v) => v.includes('空または逆順のセグメント'))).toBe(true);
   });
+
+  it('startが負の値なのを検出する', () => {
+    const broken = [seg('hello ', -1, 6), seg('world', 6, 11)];
+    const violations = findSegmentInvariantViolations(content, broken);
+    expect(violations.some((v) => v.includes('startが負の値'))).toBe(true);
+  });
+
+  it('endが本文の長さを超えているのを検出する', () => {
+    const broken = [seg('hello ', 0, 6), seg('world', 6, 99)];
+    const violations = findSegmentInvariantViolations(content, broken);
+    expect(violations.some((v) => v.includes('endが本文の長さを超えている'))).toBe(true);
+  });
+
+  it('endが単調増加していないのを検出する', () => {
+    // startは前へ戻っていないが、endだけが縮んでいるケース
+    const broken = [seg('hello world', 0, 11), seg('d', 11, 8)];
+    const violations = findSegmentInvariantViolations(content, broken);
+    expect(violations.some((v) => v.includes('endが単調増加していない'))).toBe(true);
+  });
+
+  it('startが単調増加していないのを検出する', () => {
+    const broken = [seg('llo ', 3, 7), seg('he', 0, 2)];
+    const violations = findSegmentInvariantViolations(content, broken);
+    expect(violations.some((v) => v.includes('startが単調増加していない'))).toBe(true);
+  });
+
+  it('チェックリストの8条件をすべて検査対象にしている', () => {
+    // 1つの壊れたセグメント列に複数の違反を仕込み、それぞれ検出されることを確認する
+    const allBroken = [seg('XX', -1, 2), seg('YY', 1, 1), seg('ZZ', 5, 99)];
+    const violations = findSegmentInvariantViolations(content, allBroken);
+    const joined = violations.join(' / ');
+    expect(joined).toContain('startが負の値'); // start >= 0
+    expect(joined).toContain('空または逆順のセグメント'); // end >= start ＆ 空セグメント禁止
+    expect(joined).toContain('endが本文の長さを超えている'); // end <= content.length
+    expect(joined).toContain('content.slice(start,end)と不一致'); // text === slice
+    expect(joined).toContain('隙間がある'); // 前セグメントとの連続性
+    expect(joined).toContain('末尾セグメントが本文の終端で終わっていない');
+  });
 });
 
 describe('locateQuotedText', () => {

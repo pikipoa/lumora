@@ -66,6 +66,16 @@ export function findSegmentInvariantViolations(content: string, segments: TextSe
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
 
+    // 範囲そのものの妥当性（他のセグメントとの関係を見る前に、単体で成立しているか）
+    if (seg.start < 0) {
+      violations.push(`startが負の値 (index=${i}, start=${seg.start})`);
+    }
+
+    if (seg.end > content.length) {
+      violations.push(`endが本文の長さを超えている (index=${i}, end=${seg.end}, contentLength=${content.length})`);
+    }
+
+    // start < end を検査することで「end >= start」と「空セグメントを作らない」を同時に満たす
     if (!(seg.start < seg.end)) {
       violations.push(`空または逆順のセグメント (index=${i}, start=${seg.start}, end=${seg.end})`);
     }
@@ -79,7 +89,7 @@ export function findSegmentInvariantViolations(content: string, segments: TextSe
 
     if (i > 0) {
       const prev = segments[i - 1];
-      // 単調増加と、隙間なく連続していることの両方を検査する。前者だけだと
+      // startの単調増加と、隙間なく連続していることの両方を検査する。前者だけだと
       // 「飛んでいる（＝本文の一部が欠落している）」ケースを見逃す
       if (seg.start < prev.end) {
         violations.push(
@@ -89,6 +99,16 @@ export function findSegmentInvariantViolations(content: string, segments: TextSe
         violations.push(
           `連続していない：隙間がある (index=${i}, prevEnd=${prev.end}, currentStart=${seg.start}, gap=${seg.start - prev.end})`,
         );
+      }
+
+      // endの単調増加も独立して検査する。startの連続性が壊れている状況では
+      // endの異常が上のチェックだけでは表面化しないことがあるため
+      if (seg.end < prev.end) {
+        violations.push(`endが単調増加していない (index=${i}, prevEnd=${prev.end}, currentEnd=${seg.end})`);
+      }
+
+      if (seg.start < prev.start) {
+        violations.push(`startが単調増加していない (index=${i}, prevStart=${prev.start}, currentStart=${seg.start})`);
       }
     }
   }

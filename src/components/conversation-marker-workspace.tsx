@@ -12,7 +12,7 @@
  * メモ機能は含まない（呼び出し側の責務。S6フルページのみが持つ）。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
@@ -104,7 +104,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
   // 色確定直後に「Realmを選ぶ」ステップを出す対象マーカー（v2.1認知フロー。スキップ可）
   const [realmPickerMarkerId, setRealmPickerMarkerId] = useState<string | null>(null);
-  const messageRefs = useRef<Record<string, View | null>>({});
   const { width: windowWidth } = useWindowDimensions();
 
   // Realmチップの並び順（あとで→直近使用順）用。ユーザーIDが分かってから読み込む
@@ -213,18 +212,33 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         return;
       }
       const domRange = sel.getRangeAt(0);
-      for (const [messageId, view] of Object.entries(messageRefs.current)) {
-        const el = view as unknown as HTMLElement | null;
-        if (!el || !el.contains(domRange.commonAncestorContainer)) continue;
-        const { start, end, text } = rangeToOffsets(el, domRange);
-        setPendingSelection({ messageId, start, end, text });
-        const rect = domRange.getBoundingClientRect();
-        setSelectionRect({ top: rect.top, left: rect.left, width: rect.width });
+
+      // どのメッセージ内の選択かは、JS側のマップ（messageRefs）ではなくDOM自身が持つ
+      // data-message-id から決める（2026-07-26）。
+      //
+      // 以前はmessageRefsを走査して「選択を含む最初のel」を採用していたが、実機ログで
+      // messageRefsのあるIDが別のメッセージのDOM要素を指している状態が確認された
+      // （DOM側975文字／該当contentは1835文字で、単語自体が別物だった）。ref登録は
+      // React Compilerのメモ化と絡んで想定通りに更新されないことがあり、JS側のマップを
+      // 唯一の正解にするのは危険。実際に描画されているDOMに書かれたIDが最も確かな情報。
+      const anchorNode =
+        domRange.commonAncestorContainer.nodeType === Node.TEXT_NODE
+          ? domRange.commonAncestorContainer.parentElement
+          : (domRange.commonAncestorContainer as Element | null);
+      const messageEl = anchorNode?.closest?.('[data-message-id]') as HTMLElement | null;
+      const messageId = messageEl?.getAttribute('data-message-id') ?? null;
+
+      if (!messageEl || !messageId) {
+        setPendingSelection(null);
+        setSelectionRect(null);
+        setEditingMarkerId(null);
         return;
       }
-      setPendingSelection(null);
-      setSelectionRect(null);
-      setEditingMarkerId(null);
+
+      const { start, end, text } = rangeToOffsets(messageEl, domRange);
+      setPendingSelection({ messageId, start, end, text });
+      const rect = domRange.getBoundingClientRect();
+      setSelectionRect({ top: rect.top, left: rect.left, width: rect.width });
     }
     document.addEventListener('selectionchange', onSelectionChange);
     return () => document.removeEventListener('selectionchange', onSelectionChange);
@@ -232,6 +246,18 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
   function clearNativeSelection() {
     if (Platform.OS === 'web') window.getSelection()?.removeAllRanges();
+  }
+
+  /**
+   * メッセージのDOM要素を data-message-id で引く（2026-07-26）。
+   * JS側のマップ（messageRefs）はReact Compilerのメモ化と絡んで別メッセージの要素を
+   * 指すことが実機で確認されたため、DOMに書かれたIDを唯一の正解として扱う。
+   * messageRefsは他機能（スクロール等）との互換のため残しているが、
+   * 「どのメッセージか」の判定には使わない。
+   */
+  function getMessageElement(messageId: string): HTMLElement | null {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return null;
+    return document.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null;
   }
 
   // Web: このボタンへのmousedownでブラウザがテキスト選択を解除してしまい、selectionchange→
@@ -246,7 +272,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setEditingMarkerId(layer.id);
     setPendingSelection({ messageId, start: layer.start, end: layer.end, text: '' });
     if (Platform.OS !== 'web') return;
-    const view = messageRefs.current[messageId] as unknown as HTMLElement | null;
+    const view = getMessageElement(messageId);
     if (!view) return;
     const range = offsetsToRange(view, layer.start, layer.end);
     if (!range) return;
@@ -265,7 +291,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
    */
   function diagnoseOffsetMismatch(messageId: string, content: string, start: number, end: number, quotedText: string) {
     if (Platform.OS !== 'web') return;
-    const el = messageRefs.current[messageId] as unknown as HTMLElement | null;
+    const el = getMessageElement(messageId);
     if (!el) {
       // eslint-disable-next-line no-console
       console.error('[marker-debug][診断] メッセージのDOM要素が見つかりません', { messageId });
@@ -609,12 +635,10 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
               <ThemedText type="small" themeColor="textSecondary">
                 {m.role === 'user' ? t.conversation.roleUser : t.conversation.roleAssistant}
               </ThemedText>
-              <View
-                ref={(el) => {
-                  messageRefs.current[m.id] = el;
-                }}
-                {...({ dataSet: { messageId: m.id } } as object)}
-              >
+              {/* data-message-id が「どのメッセージか」の唯一の正解。JS側のrefマップは
+                  React Compilerのメモ化と絡んで別メッセージを指すことがあったため廃止した
+                  （2026-07-26。詳細はonSelectionChangeのコメント） */}
+              <View {...({ dataSet: { messageId: m.id } } as object)}>
                 <Text selectable style={[styles.messageText, { color: theme.text }]}>
                   {segments.map((seg, i) => {
                     // 開始位置は純粋関数computeSegmentsが確定させた値を読むだけにする。

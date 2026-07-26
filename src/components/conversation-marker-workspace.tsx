@@ -136,7 +136,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     ]);
 
     // eslint-disable-next-line no-console
-    console.log('[marker-debug] 3) load()で取得したmarkers', mks);
+    console.log('[marker-debug] 3) load()で取得したmarkers: ' + JSON.stringify(mks, null, 2));
     const nextConversation = (conv as unknown as ConversationDetail) ?? null;
     setConversation(nextConversation);
     setMessages(msgs ?? []);
@@ -307,14 +307,17 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         end_offset: pendingSelection.end,
       };
       // eslint-disable-next-line no-console
-      console.log('[marker-debug] 1) 送信データ', insertPayload);
+      console.log('[marker-debug] 1) 送信データ: ' + JSON.stringify(insertPayload, null, 2));
       const { data: created, error: insertError } = await supabase
         .from('markers')
         .insert(insertPayload)
         .select('*')
         .single();
       // eslint-disable-next-line no-console
-      console.log('[marker-debug] 2) INSERT直後のDB保存データ', created, insertError);
+      console.log(
+        '[marker-debug] 2) INSERT直後のDB保存データ: ' +
+          JSON.stringify({ created, insertError: insertError?.message ?? null }, null, 2),
+      );
       if (created) {
         await recordMarkerHistory(created.id, color, 'confirmed');
         nextRealmPickerId = created.id;
@@ -358,7 +361,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
   const layersByMessage = useMemo(() => {
     // eslint-disable-next-line no-console
-    console.log('[marker-debug] 4) layersByMessageへ渡るmarkers', markers);
+    console.log('[marker-debug] 4) layersByMessageへ渡るmarkers: ' + JSON.stringify(markers, null, 2));
     const map: Record<string, MarkerLayer[]> = {};
     for (const marker of markers) {
       if (marker.status === 'rejected') continue;
@@ -462,10 +465,14 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         {messages.map((m) => {
           const layersForMessage = layersByMessage[m.id] ?? [];
           // eslint-disable-next-line no-console
-          console.log('[marker-debug] 5) computeSegments入力', m.id, layersForMessage);
+          console.log(
+            `[marker-debug] 5) computeSegments入力 (message ${m.id}): ` + JSON.stringify(layersForMessage, null, 2),
+          );
           const segments = computeSegments(m.content, layersForMessage);
           // eslint-disable-next-line no-console
-          console.log('[marker-debug] 6) computeSegments出力', m.id, segments);
+          console.log(
+            `[marker-debug] 6) computeSegments出力 (message ${m.id}): ` + JSON.stringify(segments, null, 2),
+          );
           let cursor = 0;
           return (
             <ThemedView key={m.id} style={styles.messageRow}>

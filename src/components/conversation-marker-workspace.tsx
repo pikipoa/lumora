@@ -135,8 +135,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       supabase.from('projects').select('id, name').order('created_at', { ascending: false }),
     ]);
 
-    // eslint-disable-next-line no-console
-    console.log('[marker-debug] 3) load()で取得したmarkers: ' + JSON.stringify(mks, null, 2));
     const nextConversation = (conv as unknown as ConversationDetail) ?? null;
     setConversation(nextConversation);
     setMessages(msgs ?? []);
@@ -391,8 +389,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   }
 
   const layersByMessage = useMemo(() => {
-    // eslint-disable-next-line no-console
-    console.log('[marker-debug] 4) layersByMessageへ渡るmarkers: ' + JSON.stringify(markers, null, 2));
     const map: Record<string, MarkerLayer[]> = {};
     for (const marker of markers) {
       if (marker.status === 'rejected') continue;
@@ -495,15 +491,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         </ThemedText>
         {messages.map((m) => {
           const layersForMessage = layersByMessage[m.id] ?? [];
-          // eslint-disable-next-line no-console
-          console.log(
-            `[marker-debug] 5) computeSegments入力 (message ${m.id}): ` + JSON.stringify(layersForMessage, null, 2),
-          );
           const segments = computeSegments(m.content, layersForMessage);
-          // eslint-disable-next-line no-console
-          console.log(
-            `[marker-debug] 6) computeSegments出力 (message ${m.id}): ` + JSON.stringify(segments, null, 2),
-          );
           let cursor = 0;
           return (
             <ThemedView key={m.id} style={styles.messageRow}>

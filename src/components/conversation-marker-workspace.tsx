@@ -257,6 +257,100 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setSelectionRect({ top: rect.top, left: rect.left, width: rect.width });
   }
 
+  /**
+   * 座標検証ガードが失敗した時だけ実行する診断（2026-07-26）。
+   * DOMに描画されているテキストとDBのcontentを直接突き合わせ、
+   * 「DOM側が想定と違う」のか「セグメントの開始位置が違う」のかを切り分ける。
+   * 失敗時のみ実行するためログは汚れない。
+   */
+  function diagnoseOffsetMismatch(messageId: string, content: string, start: number, end: number, quotedText: string) {
+    if (Platform.OS !== 'web') return;
+    const el = messageRefs.current[messageId] as unknown as HTMLElement | null;
+    if (!el) {
+      // eslint-disable-next-line no-console
+      console.error('[marker-debug][診断] メッセージのDOM要素が見つかりません', { messageId });
+      return;
+    }
+
+    const domText = el.textContent ?? '';
+    let firstDiff = -1;
+    const minLen = Math.min(domText.length, content.length);
+    for (let i = 0; i < minLen; i++) {
+      if (domText[i] !== content[i]) {
+        firstDiff = i;
+        break;
+      }
+    }
+    if (firstDiff === -1 && domText.length !== content.length) firstDiff = minLen;
+
+    // eslint-disable-next-line no-console
+    console.error(
+      '[marker-debug][診断] DOMテキスト vs DB content: ' +
+        JSON.stringify(
+          {
+            domTextLength: domText.length,
+            contentLength: content.length,
+            lengthDiff: domText.length - content.length,
+            firstDifferenceIndex: firstDiff,
+            domAroundFirstDiff: firstDiff >= 0 ? JSON.stringify(domText.slice(Math.max(0, firstDiff - 30), firstDiff + 30)) : null,
+            contentAroundFirstDiff:
+              firstDiff >= 0 ? JSON.stringify(content.slice(Math.max(0, firstDiff - 30), firstDiff + 30)) : null,
+            // 算出offsetの位置に、DOM側なら何があるか（content側は既にsliceAtOffsetで判明している）
+            domTextAtComputedOffsets: JSON.stringify(domText.slice(start, end)),
+            // 選択文字列がDOM/contentそれぞれのどこに出現するか（何番目のズレかを見る）
+            quotedTextIndexesInContent: (() => {
+              const idxs: number[] = [];
+              let from = 0;
+              for (;;) {
+                const i = content.indexOf(quotedText, from);
+                if (i === -1 || idxs.length >= 20) break;
+                idxs.push(i);
+                from = i + 1;
+              }
+              return idxs;
+            })(),
+          },
+          null,
+          2,
+        ),
+    );
+
+    // 各セグメント要素のdata-seg-startが、実際にcontentのその位置のテキストと一致するか
+    const segEls = Array.from(el.querySelectorAll('[data-seg-start]')) as HTMLElement[];
+    // eslint-disable-next-line no-console
+    console.error(`[marker-debug][診断] セグメント要素数: ${segEls.length}`);
+    const badSegs: unknown[] = [];
+    let domCursor = 0;
+    segEls.forEach((segEl, idx) => {
+      const attr = segEl.getAttribute('data-seg-start');
+      const segStart = Number(attr ?? 'NaN');
+      const segText = segEl.textContent ?? '';
+      const contentSlice = content.slice(segStart, segStart + segText.length);
+      const matches = segText === contentSlice;
+      if (!matches || segStart !== domCursor) {
+        badSegs.push({
+          idx,
+          dataSegStartAttr: attr,
+          segStart,
+          domCursorExpected: domCursor,
+          segTextHead: segText.slice(0, 30),
+          contentSliceHead: contentSlice.slice(0, 30),
+          textMatchesContentAtSegStart: matches,
+        });
+      }
+      domCursor += segText.length;
+    });
+    // eslint-disable-next-line no-console
+    console.error(
+      '[marker-debug][診断] 不整合セグメント（最大10件）: ' + JSON.stringify(badSegs.slice(0, 10), null, 2),
+    );
+    // eslint-disable-next-line no-console
+    console.error(
+      '[marker-debug][診断] セグメント合計長 vs DOM/content: ' +
+        JSON.stringify({ segTotalLength: domCursor, domTextLength: domText.length, contentLength: content.length }),
+    );
+  }
+
   async function recordMarkerHistory(markerId: string, color: string | null, status: string) {
     const { data: userRes } = await supabase.auth.getUser();
     const userId = userRes.user?.id;
@@ -292,6 +386,15 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           end: pendingSelection.end,
           sliceAtOffset,
         });
+        if (sourceMessage) {
+          diagnoseOffsetMismatch(
+            pendingSelection.messageId,
+            sourceMessage.content,
+            pendingSelection.start,
+            pendingSelection.end,
+            quotedText,
+          );
+        }
         Alert.alert(
           '保存を中止しました',
           `マーカーの位置がズレて計算されたため保存しませんでした。\n選択テキスト: "${quotedText}"\n位置から取得した文字: "${sliceAtOffset}"`,
@@ -328,6 +431,15 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           end: pendingSelection.end,
           sliceAtOffset,
         });
+        if (sourceMessage) {
+          diagnoseOffsetMismatch(
+            pendingSelection.messageId,
+            sourceMessage.content,
+            pendingSelection.start,
+            pendingSelection.end,
+            quotedText,
+          );
+        }
         Alert.alert(
           '保存を中止しました',
           `マーカーの位置がズレて計算されたため保存しませんでした。\n選択テキスト: "${quotedText}"\n位置から取得した文字: "${sliceAtOffset}"`,

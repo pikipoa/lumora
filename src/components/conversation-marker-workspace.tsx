@@ -135,6 +135,8 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       supabase.from('projects').select('id, name').order('created_at', { ascending: false }),
     ]);
 
+    // eslint-disable-next-line no-console
+    console.log('[marker-debug] 3) load()で取得したmarkers', mks);
     const nextConversation = (conv as unknown as ConversationDetail) ?? null;
     setConversation(nextConversation);
     setMessages(msgs ?? []);
@@ -293,21 +295,26 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       if (!unchanged) await recordMarkerHistory(editingMarkerId, color, 'confirmed');
       if (existing && !existing.project_id) nextRealmPickerId = editingMarkerId;
     } else {
-      const { data: created } = await supabase
+      const insertPayload = {
+        conversation_id: conversationId,
+        message_id: pendingSelection.messageId,
+        quoted_text: pendingSelection.text,
+        color,
+        status: 'confirmed',
+        proposed_by: 'human',
+        user_id: userId,
+        start_offset: pendingSelection.start,
+        end_offset: pendingSelection.end,
+      };
+      // eslint-disable-next-line no-console
+      console.log('[marker-debug] 1) 送信データ', insertPayload);
+      const { data: created, error: insertError } = await supabase
         .from('markers')
-        .insert({
-          conversation_id: conversationId,
-          message_id: pendingSelection.messageId,
-          quoted_text: pendingSelection.text,
-          color,
-          status: 'confirmed',
-          proposed_by: 'human',
-          user_id: userId,
-          start_offset: pendingSelection.start,
-          end_offset: pendingSelection.end,
-        })
-        .select('id')
+        .insert(insertPayload)
+        .select('*')
         .single();
+      // eslint-disable-next-line no-console
+      console.log('[marker-debug] 2) INSERT直後のDB保存データ', created, insertError);
       if (created) {
         await recordMarkerHistory(created.id, color, 'confirmed');
         nextRealmPickerId = created.id;
@@ -350,6 +357,8 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   }
 
   const layersByMessage = useMemo(() => {
+    // eslint-disable-next-line no-console
+    console.log('[marker-debug] 4) layersByMessageへ渡るmarkers', markers);
     const map: Record<string, MarkerLayer[]> = {};
     for (const marker of markers) {
       if (marker.status === 'rejected') continue;
@@ -451,7 +460,12 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           {t.conversation.bodyHint}
         </ThemedText>
         {messages.map((m) => {
-          const segments = computeSegments(m.content, layersByMessage[m.id] ?? []);
+          const layersForMessage = layersByMessage[m.id] ?? [];
+          // eslint-disable-next-line no-console
+          console.log('[marker-debug] 5) computeSegments入力', m.id, layersForMessage);
+          const segments = computeSegments(m.content, layersForMessage);
+          // eslint-disable-next-line no-console
+          console.log('[marker-debug] 6) computeSegments出力', m.id, segments);
           let cursor = 0;
           return (
             <ThemedView key={m.id} style={styles.messageRow}>

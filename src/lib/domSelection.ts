@@ -48,6 +48,55 @@ export function offsetsToRange(container: Node, start: number, end: number): Ran
  * （2026-07-26）。Range.toString()による文字列化を経由せず、Range.comparePoint()で
  * 境界点とテキストノードの前後関係を直接判定する、より基礎的な方式に変更する。
  */
+/**
+ * containerが辿るDOMツリーの前提そのものを疑うための調査用ダンプ（2026-07-26）。
+ * TreeWalkerが列挙する全テキストノードについて、内容・親要素・祖先のdata-seg-start/
+ * data-message-id、そしてrange.startContainer/endContainerと参照一致するかどうかを
+ * 出力する。textOffsetAtPointの計算式ではなく、探索対象のDOM構造自体が想定と
+ * 違っていないかを確認するためのもの。
+ */
+function dumpTextNodes(container: Node, startContainer: Node, endContainer: Node): void {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let node: Text | null;
+  let idx = 0;
+  const rows: unknown[] = [];
+  while ((node = walker.nextNode() as Text | null)) {
+    const parent = node.parentElement;
+    const segStartEl = parent?.closest?.('[data-seg-start]') ?? null;
+    const messageIdEl = parent?.closest?.('[data-message-id]') ?? null;
+    rows.push({
+      idx,
+      textContent: node.textContent,
+      parentTag: parent?.tagName ?? null,
+      dataSegStart: segStartEl?.getAttribute('data-seg-start') ?? null,
+      dataMessageId: messageIdEl?.getAttribute('data-message-id') ?? null,
+      isRangeStartContainer: node === startContainer,
+      isRangeEndContainer: node === endContainer,
+    });
+    idx++;
+  }
+  // eslint-disable-next-line no-console
+  console.log(`[marker-debug][dumpTextNodes] 列挙されたTextノード数: ${idx}`);
+  for (const row of rows) {
+    // eslint-disable-next-line no-console
+    console.log('[marker-debug][dumpTextNodes] ' + JSON.stringify(row));
+  }
+  // startContainer/endContainer自体がテキストノードではない（要素ノード＝子要素インデックス
+  // 指定のケース）場合も確認しておく
+  // eslint-disable-next-line no-console
+  console.log(
+    '[marker-debug][dumpTextNodes] startContainer/endContainerの素性: ' +
+      JSON.stringify({
+        startContainerIsTextNode: startContainer.nodeType === Node.TEXT_NODE,
+        startContainerNodeName: startContainer.nodeName,
+        startContainerOwnText: startContainer.textContent,
+        endContainerIsTextNode: endContainer.nodeType === Node.TEXT_NODE,
+        endContainerNodeName: endContainer.nodeName,
+        endContainerOwnText: endContainer.textContent,
+      }),
+  );
+}
+
 function textOffsetAtPoint(container: Node, boundaryNode: Node, boundaryOffset: number, label: string): number {
   // eslint-disable-next-line no-console
   console.log(
@@ -128,6 +177,7 @@ export function rangeToOffsets(container: Node, range: Range): { start: number; 
         2,
       ),
   );
+  dumpTextNodes(container, range.startContainer, range.endContainer);
   const start = textOffsetAtPoint(container, range.startContainer, range.startOffset, 'start');
   const end = textOffsetAtPoint(container, range.endContainer, range.endOffset, 'end');
   // eslint-disable-next-line no-console

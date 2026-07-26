@@ -514,11 +514,15 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                 ref={(el) => {
                   messageRefs.current[m.id] = el;
                 }}
+                {...({ dataSet: { messageId: m.id } } as object)}
               >
                 <Text selectable style={[styles.messageText, { color: theme.text }]}>
                   {segments.map((seg, i) => {
                     const segStart = cursor;
                     cursor += seg.text.length;
+                    // data-seg-startは計算には使わず、DOM調査用の目印としてのみ付与する
+                    // （2026-07-26、TreeWalker列挙ダンプ用）
+                    const segDiagProps: object = { dataSet: { segStart: String(segStart) } };
 
                     if (!seg.layer) {
                       // 検索語ハイライト：マーカーが無い区間の中に検索ヒットがあれば、
@@ -532,7 +536,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                         const hitStart = Math.max(0, searchMatch.start - segStart);
                         const hitEnd = Math.min(seg.text.length, searchMatch.end - segStart);
                         return (
-                          <Text key={i}>
+                          <Text key={i} {...segDiagProps}>
                             {seg.text.slice(0, hitStart)}
                             <Text style={styles.searchMatch} testID="search-match-highlight">
                               {seg.text.slice(hitStart, hitEnd)}
@@ -541,7 +545,11 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                           </Text>
                         );
                       }
-                      return seg.text;
+                      return (
+                        <Text key={i} {...segDiagProps}>
+                          {seg.text}
+                        </Text>
+                      );
                     }
 
                     const isProposed = seg.layer.kind === 'proposed';
@@ -551,6 +559,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                     return (
                       <Text
                         key={i}
+                        {...segDiagProps}
                         onPress={() => startEditingMarker(m.id, seg.layer!)}
                         style={[
                           { backgroundColor: bg },

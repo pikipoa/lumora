@@ -59,6 +59,8 @@ interface MarkerRow {
   role_tag: string | null;
   project_id: string | null;
   status: 'proposed' | 'confirmed' | 'rejected';
+  start_offset: number | null;
+  end_offset: number | null;
 }
 
 interface ProjectOption {
@@ -128,7 +130,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       supabase.from('messages').select('id, role, content, seq').eq('conversation_id', conversationId).order('seq'),
       supabase
         .from('markers')
-        .select('id, message_id, quoted_text, color, role_tag, project_id, status')
+        .select('id, message_id, quoted_text, color, role_tag, project_id, status, start_offset, end_offset')
         .eq('conversation_id', conversationId),
       supabase.from('projects').select('id, name').order('created_at', { ascending: false }),
     ]);
@@ -280,7 +282,13 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         existing && existing.quoted_text === quotedText && existing.color === color && existing.status === 'confirmed';
       await supabase
         .from('markers')
-        .update({ quoted_text: quotedText, color, status: 'confirmed' })
+        .update({
+          quoted_text: quotedText,
+          color,
+          status: 'confirmed',
+          start_offset: pendingSelection.start,
+          end_offset: pendingSelection.end,
+        })
         .eq('id', editingMarkerId);
       if (!unchanged) await recordMarkerHistory(editingMarkerId, color, 'confirmed');
       if (existing && !existing.project_id) nextRealmPickerId = editingMarkerId;
@@ -295,6 +303,8 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           status: 'confirmed',
           proposed_by: 'human',
           user_id: userId,
+          start_offset: pendingSelection.start,
+          end_offset: pendingSelection.end,
         })
         .select('id')
         .single();
@@ -345,7 +355,15 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       if (marker.status === 'rejected') continue;
       const message = messages.find((m) => m.id === marker.message_id);
       if (!message) continue;
-      const located = locateQuotedText(message.content, marker.quoted_text);
+      // 位置は保存済みのstart_offset/end_offsetを優先する。同一文字列が本文中に複数回
+      // 出現するとlocateQuotedTextは常に最初の一致に解決してしまい、既存マーカーとの
+      // 重なり判定で新しいマーカーの区間が消える不具合があった（2026-07-26修正）。
+      // start_offset/end_offsetがnullの既存マーカー（マイグレーション前に作成）は
+      // 従来通りlocateQuotedTextへフォールバックする。
+      const located =
+        marker.start_offset != null && marker.end_offset != null
+          ? { start: marker.start_offset, end: marker.end_offset }
+          : locateQuotedText(message.content, marker.quoted_text);
       if (!located) continue;
       const layer: MarkerLayer = {
         id: marker.id,

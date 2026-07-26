@@ -519,12 +519,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                   {segments.map((seg, i) => {
                     const segStart = cursor;
                     cursor += seg.text.length;
-                    // 各セグメントに自分の開始位置をDOM属性として埋め込む。選択範囲→文字位置の
-                    // 変換（rangeToOffsets）はこの属性を手がかりに「セグメント内のローカル位置＋
-                    // セグメントの開始位置」で計算する（コンテナ全体を一度に数える方式は、
-                    // セグメント数が多い会話で実際にズレることが実機ログで確認されたため変更。
-                    // 2026-07-26）。RNの<Text>型にdataSetは無いためobjectとして渡す。
-                    const segDataSetProps: object = { dataSet: { segStart: String(segStart) } };
 
                     if (!seg.layer) {
                       // 検索語ハイライト：マーカーが無い区間の中に検索ヒットがあれば、
@@ -538,7 +532,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                         const hitStart = Math.max(0, searchMatch.start - segStart);
                         const hitEnd = Math.min(seg.text.length, searchMatch.end - segStart);
                         return (
-                          <Text key={i} {...segDataSetProps}>
+                          <Text key={i}>
                             {seg.text.slice(0, hitStart)}
                             <Text style={styles.searchMatch} testID="search-match-highlight">
                               {seg.text.slice(hitStart, hitEnd)}
@@ -547,11 +541,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                           </Text>
                         );
                       }
-                      return (
-                        <Text key={i} {...segDataSetProps}>
-                          {seg.text}
-                        </Text>
-                      );
+                      return seg.text;
                     }
 
                     const isProposed = seg.layer.kind === 'proposed';
@@ -561,7 +551,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                     return (
                       <Text
                         key={i}
-                        {...segDataSetProps}
                         onPress={() => startEditingMarker(m.id, seg.layer!)}
                         style={[
                           { backgroundColor: bg },

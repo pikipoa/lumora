@@ -38,33 +38,99 @@ export function offsetsToRange(container: Node, start: number, end: number): Ran
 }
 
 /**
- * 選択範囲の境界点を、セグメント自身の開始位置（data-seg-start属性）＋セグメント内の
- * ローカル文字数で解決する。以前はコンテナ全体を一度にRange.toString()で数える方式
- * だったが、マーカー数が多い（＝本文が多数のセグメントに分割される）会話で、実際に
- * 選択した位置と異なる数値が計算される不具合が実機ログで確認された（2026-07-26）。
- * 各セグメントは自分の開始位置をdata-seg-start属性として持つ
- * （conversation-marker-workspace.tsx）ため、境界点の祖先セグメントを見つけて
- * ローカル計算するほうが、セグメント数に依存せず安定する。
+ * 選択範囲の境界点（Range.startContainer/startOffset等）を、containerの先頭からの
+ * 文字数へ変換する。offsetsToRangeと対になる処理だが、こちらは逆方向（DOM位置→数値）
+ * であるため単純なTreeWalkerの往復では済まない：boundaryNodeがテキストノード自身の
+ * 場合と、要素ノード（子要素のインデックスとしてのoffset）の場合の両方があり得る。
+ *
+ * 以前はcontainer全体、次にセグメント単位でRange.toString()の文字列長を数える方式を
+ * 試したが、いずれも実機ログで実際の選択位置と異なる数値が計算されることが確認された
+ * （2026-07-26）。Range.toString()による文字列化を経由せず、Range.comparePoint()で
+ * 境界点とテキストノードの前後関係を直接判定する、より基礎的な方式に変更する。
  */
-function resolvePointOffset(container: Node, node: Node, offset: number): number {
-  const el = (node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element)) ?? null;
-  const segEl = el?.closest('[data-seg-start]') as HTMLElement | null;
-  if (!segEl) {
-    // フォールバック：セグメントが見つからない場合は従来通りコンテナ全体で数える
-    const preRange = document.createRange();
-    preRange.selectNodeContents(container);
-    preRange.setEnd(node, offset);
-    return preRange.toString().length;
+function textOffsetAtPoint(container: Node, boundaryNode: Node, boundaryOffset: number, label: string): number {
+  // eslint-disable-next-line no-console
+  console.log(
+    `[marker-debug][textOffsetAtPoint:${label}] 開始: ` +
+      JSON.stringify(
+        {
+          boundaryNodeType: boundaryNode.nodeType,
+          boundaryNodeName: boundaryNode.nodeName,
+          boundaryNodeText: boundaryNode.textContent,
+          boundaryOffset,
+        },
+        null,
+        2,
+      ),
+  );
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let node: Text | null;
+  let cursor = 0;
+  let step = 0;
+  while ((node = walker.nextNode() as Text | null)) {
+    step++;
+    if (node === boundaryNode) {
+      const result = cursor + boundaryOffset;
+      // eslint-disable-next-line no-console
+      console.log(
+        `[marker-debug][textOffsetAtPoint:${label}] step ${step} 完全一致: ` +
+          JSON.stringify({ nodeText: node.textContent, cursor, boundaryOffset, result }, null, 2),
+      );
+      return result;
+    }
+    const len = node.textContent?.length ?? 0;
+    const nodeRange = document.createRange();
+    nodeRange.selectNodeContents(node);
+    let cmp: number;
+    let cmpError: string | null = null;
+    try {
+      cmp = nodeRange.comparePoint(boundaryNode, boundaryOffset);
+    } catch (e) {
+      cmp = 1;
+      cmpError = e instanceof Error ? e.message : String(e);
+    }
+    // eslint-disable-next-line no-console
+    console.log(
+      `[marker-debug][textOffsetAtPoint:${label}] step ${step}: ` +
+        JSON.stringify({ nodeText: node.textContent, len, cursor, cmp, cmpError }, null, 2),
+    );
+    if (cmp <= 0) {
+      // 境界点はこのテキストノードの手前（またはこのノードの範囲内だが自身ではない＝
+      // 要素境界がこのノードの直前を指している）にある
+      // eslint-disable-next-line no-console
+      console.log(`[marker-debug][textOffsetAtPoint:${label}] step ${step}で確定: cursor=${cursor}`);
+      return cursor;
+    }
+    cursor += len;
   }
-  const segStart = Number(segEl.dataset.segStart ?? '0');
-  const localRange = document.createRange();
-  localRange.selectNodeContents(segEl);
-  localRange.setEnd(node, offset);
-  return segStart + localRange.toString().length;
+  // eslint-disable-next-line no-console
+  console.log(`[marker-debug][textOffsetAtPoint:${label}] 最後まで到達: cursor=${cursor}, totalSteps=${step}`);
+  return cursor;
 }
 
 export function rangeToOffsets(container: Node, range: Range): { start: number; end: number; text: string } {
-  const start = resolvePointOffset(container, range.startContainer, range.startOffset);
-  const end = resolvePointOffset(container, range.endContainer, range.endOffset);
+  // eslint-disable-next-line no-console
+  console.log(
+    '[marker-debug][rangeToOffsets] range境界点: ' +
+      JSON.stringify(
+        {
+          startContainerType: range.startContainer.nodeType,
+          startContainerName: range.startContainer.nodeName,
+          startContainerText: range.startContainer.textContent,
+          startOffset: range.startOffset,
+          endContainerType: range.endContainer.nodeType,
+          endContainerName: range.endContainer.nodeName,
+          endContainerText: range.endContainer.textContent,
+          endOffset: range.endOffset,
+          rangeToString: range.toString(),
+        },
+        null,
+        2,
+      ),
+  );
+  const start = textOffsetAtPoint(container, range.startContainer, range.startOffset, 'start');
+  const end = textOffsetAtPoint(container, range.endContainer, range.endOffset, 'end');
+  // eslint-disable-next-line no-console
+  console.log('[marker-debug][rangeToOffsets] 最終結果: ' + JSON.stringify({ start, end, text: range.toString() }));
   return { start, end, text: range.toString() };
 }

@@ -24,6 +24,7 @@ import { t } from '@/i18n';
 import { offsetsToRange, rangeToOffsets } from '@/lib/domSelection';
 import { computeSegments, locateQuotedText, type MarkerLayer } from '@/lib/markerLayout';
 import { getRecentRealmIds, markRealmUsed, sortByRecency } from '@/lib/recentRealms';
+import { Sentry } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
 
 const MARKER_COLORS = [
@@ -91,24 +92,17 @@ interface Props {
 }
 
 export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, searchTerm, compact, onLoaded }: Props) {
-  // React Compilerのメモ化を、このコンポーネントに限って無効化する（2026-07-26）。
-  // この画面はSelection APIでDOMの実体から座標を読む都合上、描画結果とstateが完全に
-  // 一致していることが正しさの前提になる。メモ化による部分再評価と両立しない。
-  'use no memo';
-
   // このコンポーネントのインスタンスを一意に識別するID（2026-07-26）。
   //
   // 実機の診断で、同一会話のこのコンポーネントが同時に3つマウントされていることが
-  // 判明した（messagesInState=86 に対し totalMessageElementsInDom=258＝86×3、
-  // elementsWithThisMessageId=3）。expo-routerのStackは前の画面をマウントしたまま
-  // 保持するため、検索→ピークシート→フルページと行き来すると同じ会話の画面が積み重なる。
+  // 判明した（messagesInState=86 に対し totalMessageElementsInDom=258＝86×3）。
+  // expo-routerのStackは前の画面をマウントしたまま保持するため、検索→ピークシート→
+  // フルページと行き来すると同じ会話の画面が積み重なる。
   //
-  // 各インスタンスは独立したstate（messages等）を持つ一方、document全体への
-  // querySelectorは「DOM順で最初の要素」を返すため、ユーザーが実際に選択した画面では
-  // なく背後の別インスタンスの要素を掴みうる（usedElementIsFirstMatch=true）。
-  // これがDOM側975文字／state側content 1835文字という食い違いの原因。
-  //
-  // 以降、DOMアクセスは必ずこのIDでスコープし、自分が描画した要素だけを見る。
+  // 各インスタンスは独立したstate（messages等）を持ち、全インスタンスがdocumentへ
+  // selectionchangeリスナーを張る。document全体へのquerySelectorは「DOM順で最初の
+  // 要素」を返すため、スコープを絞らないと背後の別インスタンスの要素を掴みうる。
+  // DOMアクセスは必ずこのIDでスコープし、自分が描画した要素だけを見る。
   const [instanceId] = useState(() => `wsi-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
 
   const theme = useTheme();
@@ -248,14 +242,11 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       }
       const domRange = sel.getRangeAt(0);
 
-      // どのメッセージ内の選択かは、JS側のマップ（messageRefs）ではなくDOM自身が持つ
-      // data-message-id から決める（2026-07-26）。
-      //
-      // 以前はmessageRefsを走査して「選択を含む最初のel」を採用していたが、実機ログで
-      // messageRefsのあるIDが別のメッセージのDOM要素を指している状態が確認された
-      // （DOM側975文字／該当contentは1835文字で、単語自体が別物だった）。ref登録は
-      // React Compilerのメモ化と絡んで想定通りに更新されないことがあり、JS側のマップを
-      // 唯一の正解にするのは危険。実際に描画されているDOMに書かれたIDが最も確かな情報。
+      // どのメッセージ内の選択かは、JS側のマップ（旧messageRefs）ではなくDOM自身が持つ
+      // data-message-id から決める（2026-07-26）。選択はDOM上の出来事なので、
+      // 「実際に描画されている要素に書かれたID」が最も確かな情報になる。
+      // このコンポーネントは同時に複数マウントされうる（下のinstanceIdの説明を参照）ため、
+      // JS側のマップを唯一の正解にするのは危うい。
       const anchorNode =
         domRange.commonAncestorContainer.nodeType === Node.TEXT_NODE
           ? domRange.commonAncestorContainer.parentElement
@@ -303,10 +294,8 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
   /**
    * メッセージのDOM要素を data-message-id で引く（2026-07-26）。
-   * JS側のマップ（messageRefs）はReact Compilerのメモ化と絡んで別メッセージの要素を
-   * 指すことが実機で確認されたため、DOMに書かれたIDを唯一の正解として扱う。
-   * messageRefsは他機能（スクロール等）との互換のため残しているが、
-   * 「どのメッセージか」の判定には使わない。
+   * 必ず自分のインスタンス配下だけを探す（このコンポーネントは同時に複数マウント
+   * されうるため。instanceIdの宣言箇所を参照）。
    */
   function getMessageElement(messageId: string): HTMLElement | null {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return null;
@@ -341,161 +330,34 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   }
 
   /**
-   * 座標検証ガードが失敗した時だけ実行する診断（2026-07-26）。
-   * DOMに描画されているテキストとDBのcontentを直接突き合わせ、
-   * 「DOM側が想定と違う」のか「セグメントの開始位置が違う」のかを切り分ける。
-   * 失敗時のみ実行するためログは汚れない。
+   * 保存直前の座標検証（2026-07-26）。
+   *
+   * Selection APIから求めたstart/endが、実際にその位置のテキストと一致するかを確認する。
+   * 一致しないまま保存すると、表示時に本文の全く別の場所へマーカーが付いてしまう。
+   *
+   * 実地調査の結果、不一致の原因は翻訳・文章校正などのブラウザ拡張機能による
+   * ページ書き換えだった（Reactの描画は正しく、拡張機能がDOMのテキストを言い換え・
+   * 改行削除・要素の重複や並び替えをしていた）。拡張機能はこちらから制御できないため、
+   * 検出して保存を止め、ユーザーに原因を伝えるのが唯一の正しい対処になる。
+   * 詳細な調査経緯はCHANGELOG.md参照。
    */
-  function diagnoseOffsetMismatch(messageId: string, content: string, start: number, end: number, quotedText: string) {
-    if (Platform.OS !== 'web') return;
-    const el = getMessageElement(messageId);
-    if (!el) {
-      // eslint-disable-next-line no-console
-      console.error('[marker-debug][診断] メッセージのDOM要素が見つかりません', { messageId });
-      return;
-    }
+  function isSelectionPositionValid(
+    sourceMessage: MessageRow | undefined,
+    start: number,
+    end: number,
+    quotedText: string,
+  ): boolean {
+    if (!sourceMessage) return false;
+    return sourceMessage.content.slice(start, end) === quotedText;
+  }
 
-    // 同じmessageIdを持つ要素が複数存在しないか（＝このコンポーネントが同時に
-    // 複数マウントされていないか）を確認する。フルページとピークシートの二重マウントが
-    // 疑われるため（2026-07-26）
-    const root = document.querySelector(`[data-workspace-instance="${CSS.escape(instanceId)}"]`);
-    const allWithThisId = Array.from(
-      (root ?? document).querySelectorAll(`[data-message-id="${CSS.escape(messageId)}"]`),
-    ) as HTMLElement[];
-    const allMessageEls = Array.from(document.querySelectorAll('[data-message-id]')) as HTMLElement[];
-    const instanceCount = document.querySelectorAll('[data-workspace-instance]').length;
-    const conversationIdsInDom = Array.from(
-      new Set(allMessageEls.map((n) => n.getAttribute('data-conversation-id') ?? '(なし)')),
-    );
-    // eslint-disable-next-line no-console
-    console.error(
-      '[marker-debug][診断] インスタンス/DOM重複の確認: ' +
-        JSON.stringify(
-          {
-            thisInstanceConversationId: conversationId,
-            thisInstanceId: instanceId,
-            workspaceInstancesInDom: instanceCount,
-            messagesInState: messages.length,
-            stateHasThisMessageId: messages.some((msg) => msg.id === messageId),
-            // 自分のインスタンス配下に限った件数（1でなければスコープ処理の不備）
-            elementsWithThisMessageId: allWithThisId.length,
-            eachElementTextLength: allWithThisId.map((n) => (n.textContent ?? '').length),
-            eachElementConversationId: allWithThisId.map((n) => n.getAttribute('data-conversation-id')),
-            totalMessageElementsInDom: allMessageEls.length,
-            distinctConversationIdsInDom: conversationIdsInDom,
-            usedElementIsFirstMatch: allWithThisId[0] === el,
-          },
-          null,
-          2,
-        ),
-    );
-
-    const domText = el.textContent ?? '';
-    let firstDiff = -1;
-    const minLen = Math.min(domText.length, content.length);
-    for (let i = 0; i < minLen; i++) {
-      if (domText[i] !== content[i]) {
-        firstDiff = i;
-        break;
-      }
-    }
-    if (firstDiff === -1 && domText.length !== content.length) firstDiff = minLen;
-
-    // eslint-disable-next-line no-console
-    console.error(
-      '[marker-debug][診断] DOMテキスト vs DB content: ' +
-        JSON.stringify(
-          {
-            domTextLength: domText.length,
-            contentLength: content.length,
-            lengthDiff: domText.length - content.length,
-            firstDifferenceIndex: firstDiff,
-            domAroundFirstDiff: firstDiff >= 0 ? JSON.stringify(domText.slice(Math.max(0, firstDiff - 30), firstDiff + 30)) : null,
-            contentAroundFirstDiff:
-              firstDiff >= 0 ? JSON.stringify(content.slice(Math.max(0, firstDiff - 30), firstDiff + 30)) : null,
-            // 算出offsetの位置に、DOM側なら何があるか（content側は既にsliceAtOffsetで判明している）
-            // レンダー時に使われたm.contentの長さ（DOMに刻んだ値）。stateのcontent.lengthと
-            // 一致しなければ「レンダーとstateが別データを見ている」、一致するのに
-            // domTextLengthが違うなら「描画時にテキストが落ちている」と切り分けられる
-            contentLengthUsedAtRender: el.getAttribute('data-content-length'),
-            domTextAtComputedOffsets: JSON.stringify(domText.slice(start, end)),
-            // 選択文字列がDOM/contentそれぞれのどこに出現するか（何番目のズレかを見る）
-            quotedTextIndexesInContent: (() => {
-              const idxs: number[] = [];
-              let from = 0;
-              for (;;) {
-                const i = content.indexOf(quotedText, from);
-                if (i === -1 || idxs.length >= 20) break;
-                idxs.push(i);
-                from = i + 1;
-              }
-              return idxs;
-            })(),
-          },
-          null,
-          2,
-        ),
-    );
-
-    // 【決定的な比較】いまのstateから計算し直したセグメントと、DOMに実在するセグメントを
-    // 直接突き合わせる。computeSegmentsは必ずcontent全体をカバーするので、DOM側の合計が
-    // 足りない／startが非単調なら、DOMは単一のcomputeSegments結果ではないことになる。
-    const expectedSegments = computeSegments(content, layersByMessage[messageId] ?? []);
-    const domSegEls = Array.from(el.querySelectorAll('[data-seg-start]')) as HTMLElement[];
-    // eslint-disable-next-line no-console
-    console.error(
-      '[marker-debug][診断] 期待セグメント vs DOMセグメント: ' +
-        JSON.stringify(
-          {
-            expectedCount: expectedSegments.length,
-            domCount: domSegEls.length,
-            expectedTotalLength: expectedSegments.reduce((a, s) => a + s.text.length, 0),
-            domTotalLength: domSegEls.reduce((a, n) => a + (n.textContent ?? '').length, 0),
-            expectedStarts: expectedSegments.map((s) => s.start),
-            domStarts: domSegEls.map((n) => Number(n.getAttribute('data-seg-start'))),
-            expectedLengths: expectedSegments.map((s) => s.text.length),
-            domLengths: domSegEls.map((n) => (n.textContent ?? '').length),
-            layersForThisMessage: (layersByMessage[messageId] ?? []).length,
-          },
-          null,
-          2,
-        ),
-    );
-
-    // 各セグメント要素のdata-seg-startが、実際にcontentのその位置のテキストと一致するか
-    const segEls = domSegEls;
-    // eslint-disable-next-line no-console
-    console.error(`[marker-debug][診断] セグメント要素数: ${segEls.length}`);
-    const badSegs: unknown[] = [];
-    let domCursor = 0;
-    segEls.forEach((segEl, idx) => {
-      const attr = segEl.getAttribute('data-seg-start');
-      const segStart = Number(attr ?? 'NaN');
-      const segText = segEl.textContent ?? '';
-      const contentSlice = content.slice(segStart, segStart + segText.length);
-      const matches = segText === contentSlice;
-      if (!matches || segStart !== domCursor) {
-        badSegs.push({
-          idx,
-          dataSegStartAttr: attr,
-          segStart,
-          domCursorExpected: domCursor,
-          segTextHead: segText.slice(0, 30),
-          contentSliceHead: contentSlice.slice(0, 30),
-          textMatchesContentAtSegStart: matches,
-        });
-      }
-      domCursor += segText.length;
+  /** 座標検証に失敗した時：ユーザーへ原因を伝え、Sentryにも残す（黙って失敗させない） */
+  function reportPositionMismatch(quotedText: string) {
+    Sentry.captureMessage('マーカーの選択位置の検証に失敗（ブラウザ拡張機能によるDOM書き換えの疑い）', {
+      level: 'warning',
+      extra: { quotedTextLength: quotedText.length, conversationId },
     });
-    // eslint-disable-next-line no-console
-    console.error(
-      '[marker-debug][診断] 不整合セグメント（最大10件）: ' + JSON.stringify(badSegs.slice(0, 10), null, 2),
-    );
-    // eslint-disable-next-line no-console
-    console.error(
-      '[marker-debug][診断] セグメント合計長 vs DOM/content: ' +
-        JSON.stringify({ segTotalLength: domCursor, domTextLength: domText.length, contentLength: content.length }),
-    );
+    Alert.alert(t.conversation.positionMismatchTitle, t.conversation.positionMismatchBody(quotedText));
   }
 
   async function recordMarkerHistory(markerId: string, color: string | null, status: string) {
@@ -519,33 +381,10 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       const quotedText = pendingSelection.text || existing?.quoted_text;
       if (!quotedText) return;
 
-      // 保存直前の座標検証（2026-07-26、position drift対策）：rangeToOffsetsが計算した
-      // start_offset/end_offsetが実際のquoted_textと一致しない場合、ズレた位置のまま保存
-      // すると表示側で全く別の場所にマーカーが付く不具合になる。一致しなければ保存自体を
-      // 中止する（黙って誤った位置を保存しない）。
+      // 保存直前の座標検証（2026-07-26）。詳細はCHANGELOG.md参照
       const sourceMessage = messages.find((msg) => msg.id === pendingSelection.messageId);
-      const sliceAtOffset = sourceMessage?.content.slice(pendingSelection.start, pendingSelection.end) ?? null;
-      if (sliceAtOffset !== quotedText) {
-        // eslint-disable-next-line no-console
-        console.error('[marker-debug] 座標検証NG（更新）：保存を中止しました', {
-          quotedText,
-          start: pendingSelection.start,
-          end: pendingSelection.end,
-          sliceAtOffset,
-        });
-        if (sourceMessage) {
-          diagnoseOffsetMismatch(
-            pendingSelection.messageId,
-            sourceMessage.content,
-            pendingSelection.start,
-            pendingSelection.end,
-            quotedText,
-          );
-        }
-        Alert.alert(
-          '保存を中止しました',
-          `マーカーの位置がズレて計算されたため保存しませんでした。\n選択テキスト: "${quotedText}"\n位置から取得した文字: "${sliceAtOffset}"`,
-        );
+      if (!isSelectionPositionValid(sourceMessage, pendingSelection.start, pendingSelection.end, quotedText)) {
+        reportPositionMismatch(quotedText);
         return;
       }
 
@@ -567,30 +406,10 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     } else {
       const quotedText = pendingSelection.text;
 
-      // 保存直前の座標検証（2026-07-26、position drift対策）。上の更新分岐と同じ理由。
+      // 保存直前の座標検証（2026-07-26）。上の更新分岐と同じ理由
       const sourceMessage = messages.find((msg) => msg.id === pendingSelection.messageId);
-      const sliceAtOffset = sourceMessage?.content.slice(pendingSelection.start, pendingSelection.end) ?? null;
-      if (sliceAtOffset !== quotedText) {
-        // eslint-disable-next-line no-console
-        console.error('[marker-debug] 座標検証NG（新規作成）：保存を中止しました', {
-          quotedText,
-          start: pendingSelection.start,
-          end: pendingSelection.end,
-          sliceAtOffset,
-        });
-        if (sourceMessage) {
-          diagnoseOffsetMismatch(
-            pendingSelection.messageId,
-            sourceMessage.content,
-            pendingSelection.start,
-            pendingSelection.end,
-            quotedText,
-          );
-        }
-        Alert.alert(
-          '保存を中止しました',
-          `マーカーの位置がズレて計算されたため保存しませんでした。\n選択テキスト: "${quotedText}"\n位置から取得した文字: "${sliceAtOffset}"`,
-        );
+      if (!isSelectionPositionValid(sourceMessage, pendingSelection.start, pendingSelection.end, quotedText)) {
+        reportPositionMismatch(quotedText);
         return;
       }
 
@@ -763,24 +582,13 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
               <ThemedText type="small" themeColor="textSecondary">
                 {m.role === 'user' ? t.conversation.roleUser : t.conversation.roleAssistant}
               </ThemedText>
-              {/* data-message-id が「どのメッセージか」の唯一の正解。JS側のrefマップは
-                  React Compilerのメモ化と絡んで別メッセージを指すことがあったため廃止した
+              {/* data-message-id が「どのメッセージか」の唯一の正解
                   （2026-07-26。詳細はonSelectionChangeのコメント） */}
-              {/* data-content-length は「このDOMを描画した時に使ったm.contentの長さ」。
-                  stateのcontent.lengthと突き合わせることで、レンダーとstateがそもそも
-                  別のデータを見ているのか、それとも描画時にテキストが落ちているのかを
-                  切り分けられる（2026-07-26の調査用） */}
-              <View
-                {...({
-                  dataSet: { messageId: m.id, conversationId, contentLength: String(m.content.length) },
-                } as object)}
-              >
+              <View {...({ dataSet: { messageId: m.id, conversationId } } as object)}>
                 <Text selectable style={[styles.messageText, { color: theme.text }]}>
                   {segments.map((seg, i) => {
-                    // 開始位置は純粋関数computeSegmentsが確定させた値を読むだけにする。
-                    // 以前はここで `let cursor` を加算しながら求めていたが、React Compiler
-                    // 有効下ではrender中の変数書き換えが壊れ、DOMのdata-seg-startが
-                    // 単調増加しなくなっていた（詳細：markerLayout.ts TextSegment.start）。
+                    // 開始位置は純粋関数computeSegmentsが確定させた値を読むだけにする
+                    // （render中に変数を加算しない。理由：markerLayout.ts TextSegment.start）
                     const segStart = seg.start;
                     // 選択範囲→文字位置の変換（rangeToOffsets）がこの属性を土台に使う
                     const segDiagProps: object = { dataSet: { segStart: String(segStart) } };

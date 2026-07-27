@@ -13,15 +13,15 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+
+import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
-import { offsetsToRange, rangeToOffsets } from '@/lib/domSelection';
+import { rangeToOffsets } from '@/lib/domSelection';
 import { computeSegments, extractContext, resolveMarkerPosition, type MarkerLayer } from '@/lib/markerLayout';
 import { getRecentRealmIds, markRealmUsed, sortByRecency } from '@/lib/recentRealms';
 import { Sentry } from '@/lib/sentry';
@@ -78,13 +78,6 @@ interface PendingSelection {
   text: string;
 }
 
-/** 選択範囲のビューポート座標。Edit Menu/Selection Toolbar風の浮動色ツールバーの位置決めに使う */
-interface ScreenRect {
-  top: number;
-  left: number;
-  width: number;
-}
-
 interface Props {
   conversationId: string;
   jumpToMarkerId?: string | null;
@@ -115,12 +108,25 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // ── マーカー確定シートの状態（2026-07-28）────────────────────────────────
+  // 選択範囲を捉えたら、その場でブラウザの選択を解除し、引用テキストをシート内へ
+  // 再掲する。本文側の選択を保持しないため、ブラウザ標準の選択メニュー（コピー/共有）
+  // と衝突しない。位置合わせも不要になる（DESIGN.mdレビュー承認済み）。
   const [pendingSelection, setPendingSelection] = useState<PendingSelection | null>(null);
-  const [selectionRect, setSelectionRect] = useState<ScreenRect | null>(null);
   const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
-  // 色確定直後に「Realmを選ぶ」ステップを出す対象マーカー（v2.1認知フロー。スキップ可）
-  const [realmPickerMarkerId, setRealmPickerMarkerId] = useState<string | null>(null);
-  const { width: windowWidth } = useWindowDimensions();
+  /** 色ステップで選択中の色。決定するまでは確定しない（プレビュー用） */
+  const [sheetColor, setSheetColor] = useState<string | null>(null);
+  /** 長い引用の折りたたみ。3行を超える場合のみトグルを出す */
+  const [quoteExpanded, setQuoteExpanded] = useState(false);
+  /** 色確定後の「Realmを選ぶ」ステップ（v2.1認知フロー。スキップ可）。
+   *  保存直後はload()が終わる前に表示するため、表示に必要な情報を持たせる */
+  const [realmPicker, setRealmPicker] = useState<{
+    markerId: string;
+    quotedText: string;
+    color: string | null;
+  } | null>(null);
+  /** 「＋ 新しいRealm」を選んだ時の入力欄 */
+  const [newRealmName, setNewRealmName] = useState<string | null>(null);
 
   // Realmチップの並び順（あとで→直近使用順）用。ユーザーIDが分かってから読み込む
   const [userId, setUserId] = useState<string | null>(null);
@@ -170,10 +176,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setConversation(null);
     setMessages([]);
     setMarkers([]);
-    setPendingSelection(null);
-    setSelectionRect(null);
-    setEditingMarkerId(null);
-    setRealmPickerMarkerId(null);
+    closeSheet();
     setLoading(true);
   }, [conversationId]);
 
@@ -200,7 +203,9 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   useEffect(() => {
     if (!jumpToMarkerId || loading) return;
     const target = markers.find((m) => m.id === jumpToMarkerId);
-    if (target && !target.project_id) setRealmPickerMarkerId(jumpToMarkerId);
+    if (target && !target.project_id) {
+      setRealmPicker({ markerId: target.id, quotedText: target.quoted_text, color: target.color });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jumpToMarkerId, loading]);
 
@@ -231,19 +236,18 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   }, [searchMatch, loading]);
 
   // Step6スパイクの結論：ブラウザ標準Selection APIで範囲を読み取る。
-  // ドラッグ中はDOMを再構成しない（既存マーカーのレイヤーのみで分割し、選択中の範囲は
-  // ブラウザ自身のネイティブ選択表示に任せる）ことで、選択オブジェクトが無効化される
-  // レース条件（スパイク検証で発見）を避けている。
+  //
+  // 【2026-07-28】読み取った直後にブラウザの選択を解除するようになった。引用テキストは
+  // 確定シート内へ再掲するため、本文側の選択を保持する必要がない。これにより
+  // ブラウザ標準の選択メニュー（コピー/共有）が出なくなり、Lumoraの色UIと衝突しない。
+  // 位置合わせ（selectionRect）も不要になった。
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     function onSelectionChange() {
       const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-        setPendingSelection(null);
-        setSelectionRect(null);
-        setEditingMarkerId(null);
-        return;
-      }
+      // 選択が消えた時：シートを開いている最中なら閉じない（シート内の操作で
+      // 選択が解除されるため。閉じるのはシート側の明示的な操作に限る）
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
       const domRange = sel.getRangeAt(0);
 
       // どのメッセージ内の選択かは、JS側のマップ（旧messageRefs）ではなくDOM自身が持つ
@@ -262,12 +266,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           'data-workspace-instance',
         ) ?? null;
 
-      if (!messageEl || !messageId) {
-        setPendingSelection(null);
-        setSelectionRect(null);
-        setEditingMarkerId(null);
-        return;
-      }
+      if (!messageEl || !messageId) return;
 
       // このコンポーネントは同時に複数マウントされる（実機で同一会話3つを確認）。
       // expo-routerのStackが前の画面を保持し、フルページとピークシートも別インスタンス。
@@ -276,17 +275,17 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       // 別インスタンスの画面なのに、こちらのstate（別の読み込みタイミングのmessages）で
       // 検証・保存される」交差が起こる。
       // 自分が描画した要素の中での選択でなければ、このインスタンスは一切関与しない。
-      if (selectedInstanceId !== instanceId) {
-        setPendingSelection(null);
-        setSelectionRect(null);
-        setEditingMarkerId(null);
-        return;
-      }
+      if (selectedInstanceId !== instanceId) return;
 
       const { start, end, text } = rangeToOffsets(messageEl, domRange);
+      if (!text) return;
       setPendingSelection({ messageId, start, end, text });
-      const rect = domRange.getBoundingClientRect();
-      setSelectionRect({ top: rect.top, left: rect.left, width: rect.width });
+      setEditingMarkerId(null);
+      setSheetColor(null);
+      setQuoteExpanded(false);
+      // 引用はシート内に再掲するので、本文側の選択はここで解除してよい。
+      // ブラウザ標準の選択メニューもこれで消える
+      window.getSelection()?.removeAllRanges();
     }
     document.addEventListener('selectionchange', onSelectionChange);
     return () => document.removeEventListener('selectionchange', onSelectionChange);
@@ -294,6 +293,17 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
   function clearNativeSelection() {
     if (Platform.OS === 'web') window.getSelection()?.removeAllRanges();
+  }
+
+  /** 確定シートを閉じ、関連する一時状態を全て捨てる */
+  function closeSheet() {
+    clearNativeSelection();
+    setPendingSelection(null);
+    setEditingMarkerId(null);
+    setSheetColor(null);
+    setQuoteExpanded(false);
+    setRealmPicker(null);
+    setNewRealmName(null);
   }
 
   /**
@@ -310,27 +320,20 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     return root.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null;
   }
 
-  // Web: このボタンへのmousedownでブラウザがテキスト選択を解除してしまい、selectionchange→
-  // pendingSelectionがnullになった状態でonPressが呼ばれて「範囲が消えて何も起きない」ように
-  // 見えるバグがあった。mousedownの既定動作（選択解除）を止めることで、選択を保持したまま
-  // クリックできるようにする（PressablePropsの型にonMouseDownが無いためobjectとして渡す）。
-  const preventSelectionLoss: object =
-    Platform.OS === 'web' ? { onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() } : {};
-
-  // 既存マーカーをタップ→そのマーカーの現在の範囲をブラウザのネイティブ選択として復元する。
+  /**
+   * 既存マーカーをタップ→確定シートを開く（2026-07-28）。
+   * 以前はブラウザのネイティブ選択として範囲を復元していたが、引用はシート内へ
+   * 再掲するので復元は不要になった（offsetsToRangeも使わない）。
+   */
   function startEditingMarker(messageId: string, layer: MarkerLayer) {
+    const marker = markers.find((m) => m.id === layer.id);
+    if (!marker) return;
+    clearNativeSelection();
     setEditingMarkerId(layer.id);
-    setPendingSelection({ messageId, start: layer.start, end: layer.end, text: '' });
-    if (Platform.OS !== 'web') return;
-    const view = getMessageElement(messageId);
-    if (!view) return;
-    const range = offsetsToRange(view, layer.start, layer.end);
-    if (!range) return;
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-    const rect = range.getBoundingClientRect();
-    setSelectionRect({ top: rect.top, left: rect.left, width: rect.width });
+    setPendingSelection({ messageId, start: layer.start, end: layer.end, text: marker.quoted_text });
+    setSheetColor(marker.color);
+    setQuoteExpanded(false);
+    setRealmPicker(null);
   }
 
   /**
@@ -472,11 +475,17 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         nextRealmPickerId = created.id;
       }
     }
+
+    // 色が決まったらRealm選択ステップへ進む（シートの中身が入れ替わる）。
+    // load()の完了を待たずに表示できるよう、引用と色をここで渡しておく
+    const quoted = pendingSelection.text || markers.find((m) => m.id === editingMarkerId)?.quoted_text || '';
     clearNativeSelection();
     setPendingSelection(null);
-    setSelectionRect(null);
     setEditingMarkerId(null);
-    setRealmPickerMarkerId(nextRealmPickerId);
+    setSheetColor(null);
+    setQuoteExpanded(false);
+    setNewRealmName(null);
+    setRealmPicker(nextRealmPickerId ? { markerId: nextRealmPickerId, quotedText: quoted, color } : null);
     load();
   }
 
@@ -488,12 +497,28 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       await markRealmUsed(userId, projectId);
       setRecentRealmIds(await getRecentRealmIds(userId));
     }
-    clearNativeSelection();
-    setPendingSelection(null);
-    setSelectionRect(null);
-    setEditingMarkerId(null);
-    setRealmPickerMarkerId(null);
+    closeSheet();
     load();
+  }
+
+  /**
+   * 「＋ 新しいRealm」：その場でRealmを作って収納する（2026-07-28）。
+   * 「この知識に合うRealmがまだ無い」と気づくのはまさにこの瞬間なので、
+   * 別画面へ移動せずに済ませられるようにする。
+   */
+  async function createRealmAndAssign(markerId: string, name: string) {
+    const trimmed = name.trim();
+    if (!trimmed || !userId) return;
+    const { data: created, error } = await supabase
+      .from('projects')
+      .insert({ name: trimmed, user_id: userId })
+      .select('id')
+      .single();
+    if (error || !created) {
+      Alert.alert(t.realms.newRealmFormTitle, error?.message ?? '');
+      return;
+    }
+    await assignMarkerToRealm(markerId, created.id);
   }
 
   async function rejectMarker(markerId: string) {
@@ -501,10 +526,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     const alreadyRejected = existing?.status === 'rejected';
     await supabase.from('markers').update({ status: 'rejected' }).eq('id', markerId);
     if (!alreadyRejected) await recordMarkerHistory(markerId, null, 'rejected');
-    clearNativeSelection();
-    setPendingSelection(null);
-    setSelectionRect(null);
-    setEditingMarkerId(null);
+    closeSheet();
     load();
   }
 
@@ -569,51 +591,139 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     return <ThemedText style={styles.note}>{t.conversation.notFound}</ThemedText>;
   }
 
-  const realmPickerMarker = markers.find((m) => m.id === realmPickerMarkerId) ?? null;
+  // ── マーカー確定シート（2026-07-28、DESIGN.mdレビュー承認済み）──────────────
+  // 引用テキストをシート内に再掲することで、本文側の選択を保持せずに済む。
+  // その結果ブラウザ標準の選択メニューと衝突せず、位置合わせも不要になった。
+  // 縦の並びがそのまま思考の順序：「何に」→「どの色で」→「決める」。
+  const quotedForSheet = pendingSelection?.text ?? '';
+  const sheetColorHex = sheetColor ? MARKER_COLORS.find((c) => c.key === sheetColor)?.hex : undefined;
+  const realmPickerColorHex = realmPicker?.color
+    ? MARKER_COLORS.find((c) => c.key === realmPicker.color)?.hex
+    : undefined;
+  // 3行を超えるかどうかは概算（1行あたりの文字数×3）で判定する。厳密な行数計測より
+  // 「長文だけ畳む」という意図が満たせればよい
+  const QUOTE_COLLAPSE_THRESHOLD = 90;
+  const quoteIsLong = quotedForSheet.length > QUOTE_COLLAPSE_THRESHOLD;
 
-  const colorToolbarContent =
-    pendingSelection && selectionRect ? (
-      <View
-        style={[
-          styles.floatingToolbar,
-          {
-            top: Math.max(Spacing.two, selectionRect.top - 44),
-            left: Math.min(
-              Math.max(Spacing.two, selectionRect.left + selectionRect.width / 2 - 115),
-              windowWidth - 230 - Spacing.two,
-            ),
-          },
-        ]}
-        testID="marker-color-toolbar"
-      >
-        <ThemedView type="backgroundElement" style={styles.toolbarInner}>
-          {MARKER_COLORS.map((c) => (
-            <Pressable
-              key={c.key}
-              style={[styles.swatchSmall, { backgroundColor: c.hex }]}
-              {...preventSelectionLoss}
-              onPress={() => confirmPendingMarker(c.key)}
-              testID={`marker-color-${c.key}`}
-            />
-          ))}
-          {editingMarker && (
-            <Pressable
-              style={styles.toolbarReject}
-              {...preventSelectionLoss}
-              onPress={() => rejectMarker(editingMarker.id)}
-              testID="reject-marker-button"
-            >
-              <ThemedText type="small">✕</ThemedText>
-            </Pressable>
+  const sheet =
+    pendingSelection || realmPicker ? (
+      <View style={styles.sheetOverlay} testID="marker-sheet">
+        {/* スクリム：本文を黒の半透明で沈め、意識をシートへ向ける */}
+        <Pressable style={styles.sheetScrim} onPress={closeSheet} testID="marker-sheet-scrim" />
+        <ThemedView type="backgroundElement" style={styles.sheetPanel}>
+          {realmPicker ? (
+            <>
+              {/* 決めた色のまま引用を残す（何にマーカーを引いたかを保持する） */}
+              <Text
+                style={[styles.sheetQuote, { color: theme.text }, realmPickerColorHex && { backgroundColor: realmPickerColorHex }]}
+                numberOfLines={2}
+              >
+                {realmPicker.quotedText}
+              </Text>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.sheetLabel}>
+                {t.conversation.realmStepTitle}
+              </ThemedText>
+              {newRealmName === null ? (
+                <>
+                  {sortedProjects.map((p) => (
+                    <Pressable
+                      key={p.id}
+                      style={styles.sheetRow}
+                      onPress={() => assignMarkerToRealm(realmPicker.markerId, p.id)}
+                      testID={`realm-picker-${p.id}`}
+                    >
+                      <ThemedText>{p.name}</ThemedText>
+                    </Pressable>
+                  ))}
+                  <Pressable style={styles.sheetRow} onPress={() => setNewRealmName('')} testID="realm-picker-new">
+                    <ThemedText themeColor="textSecondary">{t.conversation.newRealmOption}</ThemedText>
+                  </Pressable>
+                  <Pressable style={styles.sheetRow} onPress={closeSheet} testID="realm-picker-later">
+                    <ThemedText themeColor="textSecondary">{t.common.later}</ThemedText>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <TextInput
+                    value={newRealmName}
+                    onChangeText={setNewRealmName}
+                    placeholder={t.realms.namePlaceholder}
+                    placeholderTextColor={theme.textSecondary}
+                    style={[styles.sheetInput, { color: theme.text, borderColor: theme.backgroundSelected }]}
+                    autoFocus
+                    onSubmitEditing={() => createRealmAndAssign(realmPicker.markerId, newRealmName)}
+                    testID="new-realm-input"
+                  />
+                  <Pressable
+                    style={styles.sheetRow}
+                    onPress={() => createRealmAndAssign(realmPicker.markerId, newRealmName)}
+                    testID="new-realm-create"
+                  >
+                    <ThemedText>{t.conversation.createRealmAndAssign}</ThemedText>
+                  </Pressable>
+                  <Pressable style={styles.sheetRow} onPress={() => setNewRealmName(null)}>
+                    <ThemedText themeColor="textSecondary">{t.common.back}</ThemedText>
+                  </Pressable>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              {/* 何にマーカーを引くか（主役）。色を選ぶとここにプレビューが乗る */}
+              <Text
+                style={[styles.sheetQuote, { color: theme.text }, sheetColorHex && { backgroundColor: sheetColorHex }]}
+                numberOfLines={quoteExpanded ? undefined : 3}
+                testID="marker-sheet-quote"
+              >
+                {quotedForSheet}
+              </Text>
+              {quoteIsLong && (
+                <Pressable onPress={() => setQuoteExpanded((v) => !v)} testID="marker-sheet-quote-toggle">
+                  <ThemedText type="small" themeColor="textSecondary" style={styles.sheetToggle}>
+                    {quoteExpanded ? t.common.collapse : t.common.expand}
+                  </ThemedText>
+                </Pressable>
+              )}
+
+              <View style={styles.sheetSwatchRow}>
+                {MARKER_COLORS.map((c) => (
+                  <Pressable
+                    key={c.key}
+                    onPress={() => setSheetColor(c.key)}
+                    style={[
+                      styles.sheetSwatch,
+                      { backgroundColor: c.hex },
+                      sheetColor === c.key && styles.sheetSwatchSelected,
+                    ]}
+                    testID={`marker-color-${c.key}`}
+                  />
+                ))}
+              </View>
+
+              {/* 決定は引用の直下。色が決まるまでは出さない（何を決めるかが一意） */}
+              {sheetColor && (
+                <Pressable
+                  style={styles.sheetRow}
+                  onPress={() => confirmPendingMarker(sheetColor)}
+                  testID="marker-sheet-confirm"
+                >
+                  <ThemedText>{t.conversation.confirmColor}</ThemedText>
+                </Pressable>
+              )}
+              {editingMarker && (
+                <Pressable
+                  style={styles.sheetRow}
+                  onPress={() => rejectMarker(editingMarker.id)}
+                  testID="reject-marker-button"
+                >
+                  <ThemedText themeColor="textSecondary">{t.conversation.removeMarker}</ThemedText>
+                </Pressable>
+              )}
+            </>
           )}
         </ThemedView>
       </View>
     ) : null;
-
-  const colorToolbar =
-    colorToolbarContent && Platform.OS === 'web' && typeof document !== 'undefined'
-      ? createPortal(colorToolbarContent, document.body)
-      : colorToolbarContent;
 
   return (
     <>
@@ -714,70 +824,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         })}
       </ThemedView>
 
-      {/* Edit Menu/Selection Toolbar風：選択範囲のすぐ近くに浮かぶ、色だけの最小ツールバー。
-          説明文やキャンセルボタンは持たない（選択を解いて他をタップすれば自然にキャンセルになる）。
-          検索結果のボトムシート（conversation-peek-sheet.tsx）はスライドインアニメーションのため
-          祖先要素に恒常的なtransformが残る。position:'fixed'はtransformを持つ祖先があると
-          ビューポートではなくその祖先基準になってしまうCSSの仕様があり、ツールバーが選択位置と
-          無関係な場所にずれる不具合の原因になっていた。document.bodyへポータルで直接描画することで
-          祖先のtransformの影響を受けないようにする */}
-      {colorToolbar}
-
-      {/* 既存マーカーがRealm未割当なら、色を選び直さなくてもこの場で収納できる（整理待ちからのジャンプ先） */}
-      {pendingSelection && editingMarker && !editingMarker.project_id && projects.length > 0 && (
-        <ThemedView type="backgroundElement" style={styles.actionBar}>
-          <ThemedText type="small" themeColor="textSecondary">
-            {t.conversation.assignPrompt}
-          </ThemedText>
-          <ThemedView style={styles.tagWrap}>
-            {sortedProjects.map((p) => (
-              <Pressable
-                key={p.id}
-                style={[styles.chip, { borderColor: theme.backgroundSelected }]}
-                {...preventSelectionLoss}
-                onPress={() => assignMarkerToRealm(editingMarker.id, p.id)}
-                testID={`assign-realm-${p.id}`}
-              >
-                <ThemedText type="small">{p.name}</ThemedText>
-              </Pressable>
-            ))}
-          </ThemedView>
-        </ThemedView>
-      )}
-
-      {/* v2.1認知フロー：色確定の直後に「Realmを選ぶ」ステップ（スキップ可）。
-          チップの並び順は「あとで」を先頭、続けて直近使用したRealm順 */}
-      {!pendingSelection && realmPickerMarker && (
-        <ThemedView type="backgroundElement" style={styles.actionBar} testID="realm-picker-bar">
-          <ThemedText type="small">
-            {t.conversation.realmPickerPrompt((realmPickerMarker.quoted_text ?? '').slice(0, 30))}
-          </ThemedText>
-          <ThemedView style={styles.tagWrap}>
-            <Pressable
-              style={[styles.smallButtonOutline, { borderColor: theme.backgroundSelected }]}
-              onPress={() => setRealmPickerMarkerId(null)}
-              testID="realm-picker-later"
-            >
-              <ThemedText type="small">{t.common.later}</ThemedText>
-            </Pressable>
-            {sortedProjects.map((p) => (
-              <Pressable
-                key={p.id}
-                style={[styles.chip, { borderColor: theme.backgroundSelected }]}
-                onPress={() => assignMarkerToRealm(realmPickerMarker.id, p.id)}
-                testID={`realm-picker-${p.id}`}
-              >
-                <ThemedText type="small">{p.name}</ThemedText>
-              </Pressable>
-            ))}
-            {projects.length === 0 && (
-              <ThemedText type="small" themeColor="textSecondary">
-                {t.conversation.noRealmsHint}
-              </ThemedText>
-            )}
-          </ThemedView>
-        </ThemedView>
-      )}
+      {sheet}
     </>
   );
 }
@@ -791,45 +838,40 @@ const styles = StyleSheet.create({
   markerProposed: { borderBottomWidth: 2, borderBottomColor: '#999', borderStyle: 'dashed' },
   markerSelected: { outlineWidth: 2, outlineColor: '#208AEF', outlineStyle: 'solid' } as object,
   searchMatch: { textDecorationLine: 'underline', textDecorationColor: '#FF4D4D', textDecorationStyle: 'solid' } as object,
-  actionBar: {
-    borderRadius: Spacing.two,
-    padding: Spacing.three,
-    gap: Spacing.two,
-    borderWidth: 1,
-    borderColor: '#208AEF',
-  },
-  floatingToolbar: { position: 'fixed', zIndex: 50 } as object,
-  toolbarInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    borderRadius: 20,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.two,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  swatchSmall: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: '#00000022' },
-  toolbarReject: { paddingHorizontal: Spacing.one },
   messageRow: { gap: Spacing.half, paddingVertical: Spacing.one },
-  tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    borderRadius: Spacing.four,
-    borderWidth: 1,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.half,
-  },
-  smallButtonOutline: {
-    borderWidth: 1,
-    borderRadius: Spacing.two,
-    paddingVertical: Spacing.one,
-    paddingHorizontal: Spacing.two,
-    alignSelf: 'flex-start',
+
+  // ── マーカー確定シート（2026-07-28）──────────────────────────────
+  // 枠線・アイコン・説明文は置かない。引用テキストが最大要素で、色は点、
+  // 決定は文字だけ（DESIGN.md 原則3 White Space Is UI / 原則4 Typography First）
+  sheetOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 } as object,
+  /** スクリム：黒の半透明。ライト/ダークどちらでも本文を沈める */
+  sheetScrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000000A6' } as object,
+  sheetPanel: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    maxHeight: '80%',
+    paddingTop: Spacing.five,
+    paddingBottom: Spacing.five,
+    paddingHorizontal: Spacing.four,
+    borderTopLeftRadius: Spacing.four,
+    borderTopRightRadius: Spacing.four,
+    gap: Spacing.three,
+  } as object,
+  /** 引用テキスト＝主役。色を選ぶとここに背景色が乗る（プレビュー） */
+  sheetQuote: { fontSize: 17, lineHeight: 26 },
+  sheetToggle: { paddingVertical: Spacing.one },
+  sheetLabel: { marginTop: Spacing.one },
+  sheetSwatchRow: { flexDirection: 'row', gap: Spacing.four, paddingVertical: Spacing.two },
+  sheetSwatch: { width: 28, height: 28, borderRadius: 14 },
+  /** 選択中の色だけリングを付ける。未選択は点のまま（ミニマル） */
+  sheetSwatchSelected: { outlineWidth: 2, outlineColor: '#E8ECF5', outlineOffset: 3, outlineStyle: 'solid' } as object,
+  /** 行＝文字だけ。枠もアイコンも持たせない */
+  sheetRow: { paddingVertical: Spacing.three },
+  sheetInput: {
+    borderBottomWidth: 1,
+    paddingVertical: Spacing.two,
+    fontSize: 16,
   },
 });

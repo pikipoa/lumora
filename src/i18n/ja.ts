@@ -61,6 +61,8 @@ export const ja = {
     crashTitle: '問題が発生しました',
     crashBody: 'エラーが記録されました。再読み込みしてお試しください。',
     reload: '再読み込み',
+    expand: 'もっと見る',
+    collapse: '閉じる',
   },
 
   home: {
@@ -176,6 +178,12 @@ export const ja = {
     notFound: '会話が見つかりませんでした。',
     // 選択位置の検証に失敗した時の案内（2026-07-26）。実地調査の結果、原因はほぼ
     // ブラウザ拡張機能によるページ書き換えだったため、真っ先にそれを案内する
+    // マーカー確定シート（2026-07-28）。動詞は日常語のまま（DESIGN.md原則8）
+    confirmColor: 'この色にする',
+    removeMarker: 'このマーカーを外す',
+    realmStepTitle: 'どのRealmへ',
+    newRealmOption: '＋ 新しいRealm',
+    createRealmAndAssign: '作成して収納',
     positionMismatchTitle: 'マーカーを保存できませんでした',
     positionMismatchBody: (selected: string) =>
       `選択した「${selected}」の位置を正しく特定できなかったため、保存を中止しました。\n\n` +

@@ -91,6 +91,21 @@ interface Props {
 }
 
 export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, searchTerm, compact, onLoaded }: Props) {
+  // React Compilerのメモ化を、このコンポーネントに限って無効化する（2026-07-26）。
+  //
+  // 実機の診断で、同一メッセージについて「data-message-idは現在のstateに存在するのに、
+  // 描画されているテキストは別物（DOM 975文字／state content 1835文字、単語も違う）」
+  // という状態が確認された。IDとテキストが別々のレンダー結果から来ていることを意味し、
+  // data-seg-startがDOM順で単調増加しない（303 → 372 → 307）のも同じ症状。
+  // このアプリは同一の会話を4社（ChatGPT/Gemini/Claude/Perplexity）からインポートする
+  // ため、ほぼ同内容で言い回しだけ違う会話が複数存在する。以前に見た別会話の描画結果が
+  // メモ化されたまま混ざると、まさにこの食い違いになる。
+  //
+  // この画面はSelection APIでDOMの実体から座標を読む都合上、描画結果とstateが完全に
+  // 一致していることが正しさの前提になる。メモ化による部分再評価と両立しないため、
+  // ここだけ明示的に対象外にする。
+  'use no memo';
+
   const theme = useTheme();
   const [jumpedMarkerId, setJumpedMarkerId] = useState<string | null>(null);
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
@@ -142,6 +157,21 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setLoading(false);
     onLoaded?.(nextConversation);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
+
+  // 会話が切り替わったら、前の会話の本文・マーカーを即座に捨てる（2026-07-26）。
+  // 残っていると、新しい会話のIDと前の会話の本文が同時に画面に存在する瞬間が生まれ、
+  // Selection APIで読んだ座標を誤ったcontentに対して検証してしまう。
+  // loading表示に戻すことで、読み込み完了までマーカー操作自体を成立させない。
+  useEffect(() => {
+    setConversation(null);
+    setMessages([]);
+    setMarkers([]);
+    setPendingSelection(null);
+    setSelectionRect(null);
+    setEditingMarkerId(null);
+    setRealmPickerMarkerId(null);
+    setLoading(true);
   }, [conversationId]);
 
   useEffect(() => {

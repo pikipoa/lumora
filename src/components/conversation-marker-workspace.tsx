@@ -437,8 +437,33 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         ),
     );
 
+    // 【決定的な比較】いまのstateから計算し直したセグメントと、DOMに実在するセグメントを
+    // 直接突き合わせる。computeSegmentsは必ずcontent全体をカバーするので、DOM側の合計が
+    // 足りない／startが非単調なら、DOMは単一のcomputeSegments結果ではないことになる。
+    const expectedSegments = computeSegments(content, layersByMessage[messageId] ?? []);
+    const domSegEls = Array.from(el.querySelectorAll('[data-seg-start]')) as HTMLElement[];
+    // eslint-disable-next-line no-console
+    console.error(
+      '[marker-debug][診断] 期待セグメント vs DOMセグメント: ' +
+        JSON.stringify(
+          {
+            expectedCount: expectedSegments.length,
+            domCount: domSegEls.length,
+            expectedTotalLength: expectedSegments.reduce((a, s) => a + s.text.length, 0),
+            domTotalLength: domSegEls.reduce((a, n) => a + (n.textContent ?? '').length, 0),
+            expectedStarts: expectedSegments.map((s) => s.start),
+            domStarts: domSegEls.map((n) => Number(n.getAttribute('data-seg-start'))),
+            expectedLengths: expectedSegments.map((s) => s.text.length),
+            domLengths: domSegEls.map((n) => (n.textContent ?? '').length),
+            layersForThisMessage: (layersByMessage[messageId] ?? []).length,
+          },
+          null,
+          2,
+        ),
+    );
+
     // 各セグメント要素のdata-seg-startが、実際にcontentのその位置のテキストと一致するか
-    const segEls = Array.from(el.querySelectorAll('[data-seg-start]')) as HTMLElement[];
+    const segEls = domSegEls;
     // eslint-disable-next-line no-console
     console.error(`[marker-debug][診断] セグメント要素数: ${segEls.length}`);
     const badSegs: unknown[] = [];

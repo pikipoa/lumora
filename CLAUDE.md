@@ -90,6 +90,40 @@
 - 迷ったら「Remove Before Add」：足す前に「消せないか？」を考える。カード・枠・アイコン・説明文を増やす実装は原則デフォルトにしない（タイポグラフィと余白で階層を作る）
 - 完成判定は「動くこと」ではなくDESIGN.mdのDefinition of Doneに従う
 
+### 2-7. テストと概念の扱い（2026-07-28追加）
+
+2026-07-26のマーカー位置ズレ調査（`CHANGELOG.md`）を経て、以下を**開発文化として**採用した。
+実装フレームワークではなく、テストの書き方と用語の使い方の話。
+
+**Golden Tests（判例）と Spec Tests（仕様案）を混ぜない**
+- **Golden Test＝実際に起きた事件から作った回帰テスト**。仮説で書かない。一度書いたら変えない
+  （実装の都合でGolden Testを書き換えるのは、判例を後から改ざんするのと同じ）
+- **Spec Test＝まだ起きていない未来の仕様**。Proposalの置き場所であり、Golden Testにはしない
+- 例：`src/lib/__tests__/markerLayout.test.ts`の「実際にDOMへ付与されていた358 → 369 → 363と
+  同じパターン」「3つ目のGeminiを文脈で特定できる」は、いずれも実際の事件から作ったGolden Test
+
+**壊れた値は生成元で止める**
+- 値の生成元で不変条件を検査する（`findSegmentInvariantViolations`）。純粋関数として切り出し、
+  「検査自体が壊れた入力を検出できるか」もテストする（検出しない番人は、いない番人より危険）
+- DOMから読んだ値は必ず検証してから永続化する。Webでは外部（ブラウザ拡張機能等）が
+  DOMを書き換えうるため、DOMをアプリの状態の鏡だと信用しない
+
+**Resolver＝曖昧な参照を一意の対象へ解決する仕組み、という概念名を使う**
+- **Occurrence Resolver**：同じ対象が複数ある時に「最初」「後ろ」「2番目」を解決する。
+  実装例＝`resolveMarkerPosition()`（offset → 文脈 → 最初の一致の3段階）
+- **Reference Resolver**：より広く「後ろ」「最後」「去年の秋頃」等を一意の対象へ変換する。
+  音声検索（`VISION.md` 9章）で必要になる想定
+- 新しいResolverを作る時は、解決できた確度（`matchType`等）を返し、曖昧なままの場合を
+  呼び出し側が区別できるようにする
+
+**Trace＝事件と実装を結ぶ索引を残す**
+- コードを読んだだけでは経緯が分からない修正は`CHANGELOG.md`に記録する（事件→コミット→ファイル）
+
+**Missionアーキテクチャは実装対象外**
+- Kernel / Mission / Intent Resolver / Constitution(Runtime) / Mission Executor 等は
+  **Phase2（Beacon）の構想**であり、現時点では実装しない。設計は`docs/future/mission-architecture.md`に
+  保存してある。**現在のMarker・検索・同期の実装をMission構造へリファクタリングしないこと**
+
 ---
 
 ## 3. 推奨する実装順序
@@ -135,3 +169,6 @@ Phase1機能の依存関係に基づく（詳細：`ux-flow-and-screens.md`関�
 - `settings-ia.md`：歯車アイコン設定画面の情報設計（Profile/Knowledge/Integrations/Guide、2026-07-13構想）
 - `search-spec.md`：横断検索の仕様（検索の目的・原則・検索対象の基準・フォールバックの考え方・Beaconとの役割分担。具体的なアルゴリズム・SQL実装は対象外、2026-07-13確定）
 - `CHANGELOG.md`（リポジトリ直下）：重要な修正・仕様変更のうち、コードを読んだだけでは経緯が分からないものの記録。「なぜこの作りなのか」「なぜこのチェックがあるのか」に迷ったらここを見る（2026-07-26開始）
+- `docs/future/`：**将来構想の隔離場所。現時点の実装対象ではない**。Phase1の実装中に参照する必要はない
+  - `mission-architecture.md`：Kernel/Mission/Intent Resolver等（Phase2 Beacon構想、2026-07-28記録）
+- `scripts/backfill/`：既存データの補正SQL。手順と安全条件は同ディレクトリのREADME参照

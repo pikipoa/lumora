@@ -92,19 +92,24 @@ interface Props {
 
 export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, searchTerm, compact, onLoaded }: Props) {
   // React Compilerのメモ化を、このコンポーネントに限って無効化する（2026-07-26）。
-  //
-  // 実機の診断で、同一メッセージについて「data-message-idは現在のstateに存在するのに、
-  // 描画されているテキストは別物（DOM 975文字／state content 1835文字、単語も違う）」
-  // という状態が確認された。IDとテキストが別々のレンダー結果から来ていることを意味し、
-  // data-seg-startがDOM順で単調増加しない（303 → 372 → 307）のも同じ症状。
-  // このアプリは同一の会話を4社（ChatGPT/Gemini/Claude/Perplexity）からインポートする
-  // ため、ほぼ同内容で言い回しだけ違う会話が複数存在する。以前に見た別会話の描画結果が
-  // メモ化されたまま混ざると、まさにこの食い違いになる。
-  //
   // この画面はSelection APIでDOMの実体から座標を読む都合上、描画結果とstateが完全に
-  // 一致していることが正しさの前提になる。メモ化による部分再評価と両立しないため、
-  // ここだけ明示的に対象外にする。
+  // 一致していることが正しさの前提になる。メモ化による部分再評価と両立しない。
   'use no memo';
+
+  // このコンポーネントのインスタンスを一意に識別するID（2026-07-26）。
+  //
+  // 実機の診断で、同一会話のこのコンポーネントが同時に3つマウントされていることが
+  // 判明した（messagesInState=86 に対し totalMessageElementsInDom=258＝86×3、
+  // elementsWithThisMessageId=3）。expo-routerのStackは前の画面をマウントしたまま
+  // 保持するため、検索→ピークシート→フルページと行き来すると同じ会話の画面が積み重なる。
+  //
+  // 各インスタンスは独立したstate（messages等）を持つ一方、document全体への
+  // querySelectorは「DOM順で最初の要素」を返すため、ユーザーが実際に選択した画面では
+  // なく背後の別インスタンスの要素を掴みうる（usedElementIsFirstMatch=true）。
+  // これがDOM側975文字／state側content 1835文字という食い違いの原因。
+  //
+  // 以降、DOMアクセスは必ずこのIDでスコープし、自分が描画した要素だけを見る。
+  const [instanceId] = useState(() => `wsi-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
 
   const theme = useTheme();
   const [jumpedMarkerId, setJumpedMarkerId] = useState<string | null>(null);
@@ -257,7 +262,10 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           : (domRange.commonAncestorContainer as Element | null);
       const messageEl = anchorNode?.closest?.('[data-message-id]') as HTMLElement | null;
       const messageId = messageEl?.getAttribute('data-message-id') ?? null;
-      const selectedConversationId = messageEl?.getAttribute('data-conversation-id') ?? null;
+      const selectedInstanceId =
+        (anchorNode?.closest?.('[data-workspace-instance]') as HTMLElement | null)?.getAttribute(
+          'data-workspace-instance',
+        ) ?? null;
 
       if (!messageEl || !messageId) {
         setPendingSelection(null);
@@ -266,13 +274,14 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         return;
       }
 
-      // このコンポーネントはS6フルページ（conversation/[id]/index.tsx）と検索結果の
-      // ピークシート（conversation-peek-sheet.tsx）の2箇所でマウントされる。両方が
-      // documentにグローバルなselectionchangeリスナーを張り、色ツールバーもdocument.bodyへ
-      // ポータル描画するため、同時にマウントされていると「片方のDOMで選択したのに、
-      // もう片方のインスタンス（別の会話のmessages）で検証・保存される」交差が起こりうる。
-      // 選択されたメッセージが自分の会話のものでなければ、このインスタンスは何もしない。
-      if (selectedConversationId !== null && selectedConversationId !== conversationId) {
+      // このコンポーネントは同時に複数マウントされる（実機で同一会話3つを確認）。
+      // expo-routerのStackが前の画面を保持し、フルページとピークシートも別インスタンス。
+      // 全インスタンスがdocumentにselectionchangeリスナーを張り、色ツールバーも
+      // document.bodyへポータル描画するため、スコープを絞らないと「ユーザーが選択したのは
+      // 別インスタンスの画面なのに、こちらのstate（別の読み込みタイミングのmessages）で
+      // 検証・保存される」交差が起こる。
+      // 自分が描画した要素の中での選択でなければ、このインスタンスは一切関与しない。
+      if (selectedInstanceId !== instanceId) {
         setPendingSelection(null);
         setSelectionRect(null);
         setEditingMarkerId(null);
@@ -286,7 +295,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     }
     document.addEventListener('selectionchange', onSelectionChange);
     return () => document.removeEventListener('selectionchange', onSelectionChange);
-  }, [conversationId]);
+  }, [conversationId, instanceId]);
 
   function clearNativeSelection() {
     if (Platform.OS === 'web') window.getSelection()?.removeAllRanges();
@@ -301,11 +310,11 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
    */
   function getMessageElement(messageId: string): HTMLElement | null {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return null;
-    // 会話IDでも絞る。同じメッセージが別インスタンス（フルページとピークシート）に
-    // 同時に描画されている場合、document全体へのquerySelectorだと他方を掴みうるため
-    return document.querySelector(
-      `[data-conversation-id="${CSS.escape(conversationId)}"][data-message-id="${CSS.escape(messageId)}"]`,
-    ) as HTMLElement | null;
+    // 必ず自分のインスタンス配下だけを探す。同じ会話のこのコンポーネントは同時に複数
+    // マウントされうるため（実機で3つ確認）、document全体だと他インスタンスの要素を掴む
+    const root = document.querySelector(`[data-workspace-instance="${CSS.escape(instanceId)}"]`);
+    if (!root) return null;
+    return root.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null;
   }
 
   // Web: このボタンへのmousedownでブラウザがテキスト選択を解除してしまい、selectionchange→
@@ -349,10 +358,12 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     // 同じmessageIdを持つ要素が複数存在しないか（＝このコンポーネントが同時に
     // 複数マウントされていないか）を確認する。フルページとピークシートの二重マウントが
     // 疑われるため（2026-07-26）
+    const root = document.querySelector(`[data-workspace-instance="${CSS.escape(instanceId)}"]`);
     const allWithThisId = Array.from(
-      document.querySelectorAll(`[data-message-id="${CSS.escape(messageId)}"]`),
+      (root ?? document).querySelectorAll(`[data-message-id="${CSS.escape(messageId)}"]`),
     ) as HTMLElement[];
     const allMessageEls = Array.from(document.querySelectorAll('[data-message-id]')) as HTMLElement[];
+    const instanceCount = document.querySelectorAll('[data-workspace-instance]').length;
     const conversationIdsInDom = Array.from(
       new Set(allMessageEls.map((n) => n.getAttribute('data-conversation-id') ?? '(なし)')),
     );
@@ -362,8 +373,11 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         JSON.stringify(
           {
             thisInstanceConversationId: conversationId,
+            thisInstanceId: instanceId,
+            workspaceInstancesInDom: instanceCount,
             messagesInState: messages.length,
             stateHasThisMessageId: messages.some((msg) => msg.id === messageId),
+            // 自分のインスタンス配下に限った件数（1でなければスコープ処理の不備）
             elementsWithThisMessageId: allWithThisId.length,
             eachElementTextLength: allWithThisId.map((n) => (n.textContent ?? '').length),
             eachElementConversationId: allWithThisId.map((n) => n.getAttribute('data-conversation-id')),
@@ -700,7 +714,14 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       </ThemedText>
 
       {/* 本文（マーカーハイライト＋範囲選択） */}
-      <ThemedView type="backgroundElement" style={[styles.section, compact && styles.sectionCompact]}>
+      {/* data-workspace-instance がこのインスタンスの境界。DOMを見る処理は必ずこの配下に
+          限定する（同一会話のこのコンポーネントが同時に複数マウントされるため。
+          詳細はinstanceIdの宣言箇所のコメント） */}
+      <ThemedView
+        type="backgroundElement"
+        style={[styles.section, compact && styles.sectionCompact]}
+        {...({ dataSet: { workspaceInstance: instanceId } } as object)}
+      >
         <ThemedText type="smallBold">{t.conversation.bodyTitle}</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
           {t.conversation.bodyHint}

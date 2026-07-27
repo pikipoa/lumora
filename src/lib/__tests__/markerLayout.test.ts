@@ -1,7 +1,9 @@
 import {
   computeSegments,
+  extractContext,
   findSegmentInvariantViolations,
   locateQuotedText,
+  resolveMarkerPosition,
   type MarkerLayer,
   type TextSegment,
 } from '../markerLayout';
@@ -274,5 +276,173 @@ describe('locateQuotedText', () => {
 
   it('空文字はnullを返す', () => {
     expect(locateQuotedText('hello', '')).toBeNull();
+  });
+});
+
+// 2026-07-27追加。「同じ単語の別の場所にマーカーが付く」不具合への対処。
+// quoted_textだけで位置を決めると必ず最初の一致になるため、前後の文脈を併せて保存し、
+// 3段階（offset → 文脈 → 最初の一致）で解決する。
+describe('resolveMarkerPosition', () => {
+  // 「Gemini」が3回出てくる本文。実データ（同じ単語が6回出る会話）を模した形
+  const content = [
+    'AIを3つ使っている。',        // 0-11
+    '1つ目はGeminiで下書き用。',   // 12-...
+    '2つ目はGeminiで要約用。',
+    '3つ目はGeminiで翻訳用。',
+  ].join('\n');
+
+  const occurrences: number[] = [];
+  {
+    let from = 0;
+    for (;;) {
+      const i = content.indexOf('Gemini', from);
+      if (i === -1) break;
+      occurrences.push(i);
+      from = i + 1;
+    }
+  }
+
+  it('前提：本文中にGeminiが3回出現する', () => {
+    expect(occurrences).toHaveLength(3);
+  });
+
+  it('保存されたoffsetと文脈が一致すればそのまま使う（exact）', () => {
+    const start = occurrences[2];
+    const ctx = extractContext(content, start, start + 6);
+    expect(
+      resolveMarkerPosition(content, {
+        quotedText: 'Gemini',
+        startOffset: start,
+        endOffset: start + 6,
+        contextBefore: ctx.before,
+        contextAfter: ctx.after,
+      }),
+    ).toEqual({ start, end: start + 6, confidence: 'exact' });
+  });
+
+  it('【本題】offsetが失われていても、文脈から3つ目のGeminiを特定できる', () => {
+    const start = occurrences[2];
+    const ctx = extractContext(content, start, start + 6);
+    const resolved = resolveMarkerPosition(content, {
+      quotedText: 'Gemini',
+      startOffset: null, // マイグレーション前の既存マーカーを想定
+      endOffset: null,
+      contextBefore: ctx.before,
+      contextAfter: ctx.after,
+    });
+    expect(resolved).toEqual({ start, end: start + 6, confidence: 'context' });
+    // 最初の一致（＝従来の誤った挙動）に落ちていないこと
+    expect(resolved!.start).not.toBe(occurrences[0]);
+  });
+
+  it('【本題】offsetが別の出現箇所を指していても、文脈が正しければ訂正される', () => {
+    // 保存時に1つ目の位置が計算されてしまったが、文脈は3つ目のもの、という状況。
+    // content.slice(start,end)==='Gemini' なので保存時ガードは通過してしまうケース
+    const wrongStart = occurrences[0];
+    const trueStart = occurrences[2];
+    const ctx = extractContext(content, trueStart, trueStart + 6);
+    const resolved = resolveMarkerPosition(content, {
+      quotedText: 'Gemini',
+      startOffset: wrongStart,
+      endOffset: wrongStart + 6,
+      contextBefore: ctx.before,
+      contextAfter: ctx.after,
+    });
+    expect(resolved).toEqual({ start: trueStart, end: trueStart + 6, confidence: 'context' });
+  });
+
+  it('2つ目のGeminiも文脈で正しく特定できる', () => {
+    const start = occurrences[1];
+    const ctx = extractContext(content, start, start + 6);
+    const resolved = resolveMarkerPosition(content, {
+      quotedText: 'Gemini',
+      startOffset: null,
+      endOffset: null,
+      contextBefore: ctx.before,
+      contextAfter: ctx.after,
+    });
+    expect(resolved!.start).toBe(start);
+  });
+
+  it('文脈が無く複数出現する場合は最初の一致だが、fallbackとして申告する', () => {
+    const resolved = resolveMarkerPosition(content, {
+      quotedText: 'Gemini',
+      startOffset: null,
+      endOffset: null,
+      contextBefore: null,
+      contextAfter: null,
+    });
+    expect(resolved).toEqual({ start: occurrences[0], end: occurrences[0] + 6, confidence: 'fallback' });
+  });
+
+  it('出現が1回だけなら文脈が無くてもexact', () => {
+    const resolved = resolveMarkerPosition(content, {
+      quotedText: '翻訳用',
+      startOffset: null,
+      endOffset: null,
+      contextBefore: null,
+      contextAfter: null,
+    });
+    expect(resolved!.confidence).toBe('exact');
+    expect(content.slice(resolved!.start, resolved!.end)).toBe('翻訳用');
+  });
+
+  it('本文中に見つからなければnull', () => {
+    expect(
+      resolveMarkerPosition(content, {
+        quotedText: '存在しない文字列',
+        startOffset: 0,
+        endOffset: 8,
+        contextBefore: null,
+        contextAfter: null,
+      }),
+    ).toBeNull();
+  });
+
+  it('本文が編集されてoffsetがずれても、文脈で追従できる', () => {
+    const start = occurrences[2];
+    const ctx = extractContext(content, start, start + 6);
+    // 先頭に文章が挿入され、全体が後ろへずれた本文
+    const shifted = '追記：この会話は再編集されています。\n' + content;
+    const resolved = resolveMarkerPosition(shifted, {
+      quotedText: 'Gemini',
+      startOffset: start, // 旧本文での位置（今は別の場所を指す）
+      endOffset: start + 6,
+      contextBefore: ctx.before,
+      contextAfter: ctx.after,
+    });
+    expect(shifted.slice(resolved!.start, resolved!.end)).toBe('Gemini');
+    expect(resolved!.confidence).toBe('context');
+    // ずれた分だけ後ろに来ているはず
+    expect(resolved!.start).toBeGreaterThan(start);
+  });
+
+  it('解決結果は必ずcontent上で実際にquotedTextを指す（全ケース共通の不変条件）', () => {
+    const cases = [
+      { startOffset: occurrences[1], endOffset: occurrences[1] + 6 },
+      { startOffset: null, endOffset: null },
+      { startOffset: 9999, endOffset: 10005 },
+    ];
+    for (const c of cases) {
+      const ctx = extractContext(content, occurrences[1], occurrences[1] + 6);
+      const resolved = resolveMarkerPosition(content, {
+        quotedText: 'Gemini',
+        startOffset: c.startOffset,
+        endOffset: c.endOffset,
+        contextBefore: ctx.before,
+        contextAfter: ctx.after,
+      });
+      expect(content.slice(resolved!.start, resolved!.end)).toBe('Gemini');
+    }
+  });
+});
+
+describe('extractContext', () => {
+  it('前後を指定の長さで切り出す', () => {
+    expect(extractContext('0123456789abcdef', 5, 8, 3)).toEqual({ before: '234', after: '89a' });
+  });
+
+  it('本文の端では切り詰められる', () => {
+    expect(extractContext('abc', 0, 1, 10)).toEqual({ before: '', after: 'bc' });
   });
 });

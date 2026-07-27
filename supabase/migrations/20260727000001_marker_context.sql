@@ -1,0 +1,21 @@
+-- マーカー位置の前後文脈を保存する（2026-07-27）。
+--
+-- 【背景】start_offset/end_offset（20260726000001）だけでは、次の2つを守れない：
+--
+-- 1. 「テキストは同じで出現箇所が違う」ズレを検出できない
+--    保存時の検証は content.slice(start,end) === quoted_text で行っているが、
+--    「Gemini」が本文に6回出てくる会話では、3つ目を選んだのに1つ目の位置が
+--    計算されても検証を通過してしまう（どちらも文字列は "Gemini" のため）。
+--
+-- 2. 本文が編集・再インポートされるとoffsetが無意味になる
+--    位置が全体的にずれた時、offsetだけでは追従できない。
+--
+-- 選択範囲の前後40文字を併せて保存することで、offsetが使えない・信用できない場合でも
+-- 「どの出現箇所だったか」を文脈から特定できるようにする。
+-- 表示時は3段階（offset → 文脈 → 最初の一致）で解決する（src/lib/markerLayout.ts の
+-- resolveMarkerPosition）。
+--
+-- 既存マーカーはnullのまま。文脈が無い場合は従来どおりの挙動（最初の一致）に
+-- フォールバックし、その旨をconfidenceとして扱う。
+alter table markers add column context_before text;
+alter table markers add column context_after text;

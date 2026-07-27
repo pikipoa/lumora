@@ -22,7 +22,7 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/i18n';
 import { offsetsToRange, rangeToOffsets } from '@/lib/domSelection';
-import { computeSegments, locateQuotedText, type MarkerLayer } from '@/lib/markerLayout';
+import { computeSegments, extractContext, resolveMarkerPosition, type MarkerLayer } from '@/lib/markerLayout';
 import { getRecentRealmIds, markRealmUsed, sortByRecency } from '@/lib/recentRealms';
 import { Sentry } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
@@ -62,6 +62,8 @@ interface MarkerRow {
   status: 'proposed' | 'confirmed' | 'rejected';
   start_offset: number | null;
   end_offset: number | null;
+  context_before: string | null;
+  context_after: string | null;
 }
 
 interface ProjectOption {
@@ -143,7 +145,9 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       supabase.from('messages').select('id, role, content, seq').eq('conversation_id', conversationId).order('seq'),
       supabase
         .from('markers')
-        .select('id, message_id, quoted_text, color, role_tag, project_id, status, start_offset, end_offset')
+        .select(
+          'id, message_id, quoted_text, color, role_tag, project_id, status, start_offset, end_offset, context_before, context_after',
+        )
         .eq('conversation_id', conversationId),
       supabase.from('projects').select('id, name').order('created_at', { ascending: false }),
     ]);
@@ -391,6 +395,9 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       // 範囲・色・状態のいずれも変化していない場合は履歴を残さない（無駄な追記を避ける）
       const unchanged =
         existing && existing.quoted_text === quotedText && existing.color === color && existing.status === 'confirmed';
+      // 前後の文脈も保存する。offsetだけでは「同じ文字列の別の出現箇所」を区別できず、
+      // 本文が編集された時にも追従できないため（2026-07-27。markerLayout.ts参照）
+      const ctx = extractContext(sourceMessage!.content, pendingSelection.start, pendingSelection.end);
       await supabase
         .from('markers')
         .update({
@@ -399,6 +406,8 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           status: 'confirmed',
           start_offset: pendingSelection.start,
           end_offset: pendingSelection.end,
+          context_before: ctx.before,
+          context_after: ctx.after,
         })
         .eq('id', editingMarkerId);
       if (!unchanged) await recordMarkerHistory(editingMarkerId, color, 'confirmed');
@@ -413,6 +422,9 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         return;
       }
 
+      // 前後の文脈も保存する（2026-07-27）。offsetだけでは「同じ文字列の別の出現箇所」を
+      // 区別できず、保存時の検証もそれを検出できない（どちらも文字列は一致するため）
+      const ctx = extractContext(sourceMessage!.content, pendingSelection.start, pendingSelection.end);
       const insertPayload = {
         conversation_id: conversationId,
         message_id: pendingSelection.messageId,
@@ -423,6 +435,8 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         user_id: userId,
         start_offset: pendingSelection.start,
         end_offset: pendingSelection.end,
+        context_before: ctx.before,
+        context_after: ctx.after,
       };
       const { data: created } = await supabase.from('markers').insert(insertPayload).select('id').single();
       if (created) {
@@ -472,15 +486,18 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       if (marker.status === 'rejected') continue;
       const message = messages.find((m) => m.id === marker.message_id);
       if (!message) continue;
-      // 位置は保存済みのstart_offset/end_offsetを優先する。同一文字列が本文中に複数回
-      // 出現するとlocateQuotedTextは常に最初の一致に解決してしまい、既存マーカーとの
-      // 重なり判定で新しいマーカーの区間が消える不具合があった（2026-07-26修正）。
-      // start_offset/end_offsetがnullの既存マーカー（マイグレーション前に作成）は
-      // 従来通りlocateQuotedTextへフォールバックする。
-      const located =
-        marker.start_offset != null && marker.end_offset != null
-          ? { start: marker.start_offset, end: marker.end_offset }
-          : locateQuotedText(message.content, marker.quoted_text);
+      // 位置は3段階で解決する（2026-07-27。markerLayout.ts resolveMarkerPosition参照）：
+      //   1. 保存されたoffsetが正しく、前後の文脈も一致 → そのまま使う
+      //   2. offsetが使えない／別の出現箇所を指している → 文脈から特定する
+      //   3. 決め手がなければ最初の出現箇所（従来の挙動。誤りの可能性あり）
+      // offsetだけに頼ると「同じ文字列の別の出現箇所」と本文の編集に対応できない。
+      const located = resolveMarkerPosition(message.content, {
+        quotedText: marker.quoted_text,
+        startOffset: marker.start_offset,
+        endOffset: marker.end_offset,
+        contextBefore: marker.context_before,
+        contextAfter: marker.context_after,
+      });
       if (!located) continue;
       const layer: MarkerLayer = {
         id: marker.id,

@@ -36,12 +36,18 @@ select count(*) as will_update_count from tier1;
 
 -- ------------------------------------------------------------
 -- 本体：Tier 1 のみ更新
+--
+-- offsetに加えて前後40文字の文脈も埋める（20260727000001マイグレーションで追加した
+-- context_before/context_after）。出現が1回だけなので文脈も一意に定まる。
+-- これにより、将来この本文が編集されても文脈から位置を追従できるようになる
+-- （src/lib/markerLayout.ts の resolveMarkerPosition）。
 -- ------------------------------------------------------------
 with tier1 as (
   select
     m.id,
-    position(m.quoted_text in msg.content) - 1 as new_start_offset,
-    position(m.quoted_text in msg.content) - 1 + length(m.quoted_text) as new_end_offset
+    position(m.quoted_text in msg.content) as pos,          -- 1始まり
+    length(m.quoted_text) as qlen,
+    msg.content as content
   from markers m
   join messages msg on msg.id = m.message_id
   where m.start_offset is null
@@ -51,8 +57,10 @@ with tier1 as (
     and (length(msg.content) - length(replace(msg.content, m.quoted_text, ''))) / length(m.quoted_text) = 1
 )
 update markers m
-set start_offset = t.new_start_offset,
-    end_offset   = t.new_end_offset
+set start_offset   = t.pos - 1,
+    end_offset     = t.pos - 1 + t.qlen,
+    context_before = substring(t.content from greatest(1, t.pos - 40) for t.pos - greatest(1, t.pos - 40)),
+    context_after  = substring(t.content from t.pos + t.qlen for 40)
 from tier1 t
 where m.id = t.id;
 

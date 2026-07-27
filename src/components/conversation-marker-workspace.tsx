@@ -414,6 +414,10 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
             contentAroundFirstDiff:
               firstDiff >= 0 ? JSON.stringify(content.slice(Math.max(0, firstDiff - 30), firstDiff + 30)) : null,
             // 算出offsetの位置に、DOM側なら何があるか（content側は既にsliceAtOffsetで判明している）
+            // レンダー時に使われたm.contentの長さ（DOMに刻んだ値）。stateのcontent.lengthと
+            // 一致しなければ「レンダーとstateが別データを見ている」、一致するのに
+            // domTextLengthが違うなら「描画時にテキストが落ちている」と切り分けられる
+            contentLengthUsedAtRender: el.getAttribute('data-content-length'),
             domTextAtComputedOffsets: JSON.stringify(domText.slice(start, end)),
             // 選択文字列がDOM/contentそれぞれのどこに出現するか（何番目のズレかを見る）
             quotedTextIndexesInContent: (() => {
@@ -737,7 +741,15 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
               {/* data-message-id が「どのメッセージか」の唯一の正解。JS側のrefマップは
                   React Compilerのメモ化と絡んで別メッセージを指すことがあったため廃止した
                   （2026-07-26。詳細はonSelectionChangeのコメント） */}
-              <View {...({ dataSet: { messageId: m.id, conversationId } } as object)}>
+              {/* data-content-length は「このDOMを描画した時に使ったm.contentの長さ」。
+                  stateのcontent.lengthと突き合わせることで、レンダーとstateがそもそも
+                  別のデータを見ているのか、それとも描画時にテキストが落ちているのかを
+                  切り分けられる（2026-07-26の調査用） */}
+              <View
+                {...({
+                  dataSet: { messageId: m.id, conversationId, contentLength: String(m.content.length) },
+                } as object)}
+              >
                 <Text selectable style={[styles.messageText, { color: theme.text }]}>
                   {segments.map((seg, i) => {
                     // 開始位置は純粋関数computeSegmentsが確定させた値を読むだけにする。

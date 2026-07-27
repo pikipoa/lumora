@@ -227,8 +227,22 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           : (domRange.commonAncestorContainer as Element | null);
       const messageEl = anchorNode?.closest?.('[data-message-id]') as HTMLElement | null;
       const messageId = messageEl?.getAttribute('data-message-id') ?? null;
+      const selectedConversationId = messageEl?.getAttribute('data-conversation-id') ?? null;
 
       if (!messageEl || !messageId) {
+        setPendingSelection(null);
+        setSelectionRect(null);
+        setEditingMarkerId(null);
+        return;
+      }
+
+      // このコンポーネントはS6フルページ（conversation/[id]/index.tsx）と検索結果の
+      // ピークシート（conversation-peek-sheet.tsx）の2箇所でマウントされる。両方が
+      // documentにグローバルなselectionchangeリスナーを張り、色ツールバーもdocument.bodyへ
+      // ポータル描画するため、同時にマウントされていると「片方のDOMで選択したのに、
+      // もう片方のインスタンス（別の会話のmessages）で検証・保存される」交差が起こりうる。
+      // 選択されたメッセージが自分の会話のものでなければ、このインスタンスは何もしない。
+      if (selectedConversationId !== null && selectedConversationId !== conversationId) {
         setPendingSelection(null);
         setSelectionRect(null);
         setEditingMarkerId(null);
@@ -242,7 +256,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     }
     document.addEventListener('selectionchange', onSelectionChange);
     return () => document.removeEventListener('selectionchange', onSelectionChange);
-  }, []);
+  }, [conversationId]);
 
   function clearNativeSelection() {
     if (Platform.OS === 'web') window.getSelection()?.removeAllRanges();
@@ -257,7 +271,11 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
    */
   function getMessageElement(messageId: string): HTMLElement | null {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return null;
-    return document.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null;
+    // 会話IDでも絞る。同じメッセージが別インスタンス（フルページとピークシート）に
+    // 同時に描画されている場合、document全体へのquerySelectorだと他方を掴みうるため
+    return document.querySelector(
+      `[data-conversation-id="${CSS.escape(conversationId)}"][data-message-id="${CSS.escape(messageId)}"]`,
+    ) as HTMLElement | null;
   }
 
   // Web: このボタンへのmousedownでブラウザがテキスト選択を解除してしまい、selectionchange→
@@ -297,6 +315,36 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       console.error('[marker-debug][診断] メッセージのDOM要素が見つかりません', { messageId });
       return;
     }
+
+    // 同じmessageIdを持つ要素が複数存在しないか（＝このコンポーネントが同時に
+    // 複数マウントされていないか）を確認する。フルページとピークシートの二重マウントが
+    // 疑われるため（2026-07-26）
+    const allWithThisId = Array.from(
+      document.querySelectorAll(`[data-message-id="${CSS.escape(messageId)}"]`),
+    ) as HTMLElement[];
+    const allMessageEls = Array.from(document.querySelectorAll('[data-message-id]')) as HTMLElement[];
+    const conversationIdsInDom = Array.from(
+      new Set(allMessageEls.map((n) => n.getAttribute('data-conversation-id') ?? '(なし)')),
+    );
+    // eslint-disable-next-line no-console
+    console.error(
+      '[marker-debug][診断] インスタンス/DOM重複の確認: ' +
+        JSON.stringify(
+          {
+            thisInstanceConversationId: conversationId,
+            messagesInState: messages.length,
+            stateHasThisMessageId: messages.some((msg) => msg.id === messageId),
+            elementsWithThisMessageId: allWithThisId.length,
+            eachElementTextLength: allWithThisId.map((n) => (n.textContent ?? '').length),
+            eachElementConversationId: allWithThisId.map((n) => n.getAttribute('data-conversation-id')),
+            totalMessageElementsInDom: allMessageEls.length,
+            distinctConversationIdsInDom: conversationIdsInDom,
+            usedElementIsFirstMatch: allWithThisId[0] === el,
+          },
+          null,
+          2,
+        ),
+    );
 
     const domText = el.textContent ?? '';
     let firstDiff = -1;
@@ -638,7 +686,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
               {/* data-message-id が「どのメッセージか」の唯一の正解。JS側のrefマップは
                   React Compilerのメモ化と絡んで別メッセージを指すことがあったため廃止した
                   （2026-07-26。詳細はonSelectionChangeのコメント） */}
-              <View {...({ dataSet: { messageId: m.id } } as object)}>
+              <View {...({ dataSet: { messageId: m.id, conversationId } } as object)}>
                 <Text selectable style={[styles.messageText, { color: theme.text }]}>
                   {segments.map((seg, i) => {
                     // 開始位置は純粋関数computeSegmentsが確定させた値を読むだけにする。

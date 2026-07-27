@@ -176,7 +176,15 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setConversation(null);
     setMessages([]);
     setMarkers([]);
-    closeSheet();
+    // closeSheet()を呼ばずに個別のsetterを並べているのは、closeSheetが毎レンダー
+    // 再生成される関数で、依存配列に入れると会話が変わっていなくても毎回走るため。
+    // setterは安定しているので依存配列に含める必要がない
+    setPendingSelection(null);
+    setEditingMarkerId(null);
+    setSheetColor(null);
+    setQuoteExpanded(false);
+    setRealmPicker(null);
+    setNewRealmName(null);
     setLoading(true);
   }, [conversationId]);
 
@@ -304,20 +312,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setQuoteExpanded(false);
     setRealmPicker(null);
     setNewRealmName(null);
-  }
-
-  /**
-   * メッセージのDOM要素を data-message-id で引く（2026-07-26）。
-   * 必ず自分のインスタンス配下だけを探す（このコンポーネントは同時に複数マウント
-   * されうるため。instanceIdの宣言箇所を参照）。
-   */
-  function getMessageElement(messageId: string): HTMLElement | null {
-    if (Platform.OS !== 'web' || typeof document === 'undefined') return null;
-    // 必ず自分のインスタンス配下だけを探す。同じ会話のこのコンポーネントは同時に複数
-    // マウントされうるため（実機で3つ確認）、document全体だと他インスタンスの要素を掴む
-    const root = document.querySelector(`[data-workspace-instance="${CSS.escape(instanceId)}"]`);
-    if (!root) return null;
-    return root.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null;
   }
 
   /**

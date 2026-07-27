@@ -355,6 +355,20 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     return sourceMessage.content.slice(start, end) === quotedText;
   }
 
+  /**
+   * 開発時のみ：マーカーを保存する直前の内容をログに出す（2026-07-27）。
+   * 表示時のログ（layersByMessage内）と突き合わせると、保存↔表示のどこでズレたかが
+   * 一目で分かる。本番ビルドでは__DEV__がfalseになり一切実行されない。
+   */
+  function logMarkerSave(
+    kind: 'insert' | 'update',
+    payload: { quotedText: string; startOffset: number; endOffset: number; before: string; after: string },
+  ) {
+    if (typeof __DEV__ === 'undefined' || !__DEV__) return;
+    // eslint-disable-next-line no-console
+    console.log(`[marker] 保存(${kind}): ` + JSON.stringify(payload, null, 2));
+  }
+
   /** 座標検証に失敗した時：ユーザーへ原因を伝え、Sentryにも残す（黙って失敗させない） */
   function reportPositionMismatch(quotedText: string) {
     Sentry.captureMessage('マーカーの選択位置の検証に失敗（ブラウザ拡張機能によるDOM書き換えの疑い）', {
@@ -398,6 +412,13 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       // 前後の文脈も保存する。offsetだけでは「同じ文字列の別の出現箇所」を区別できず、
       // 本文が編集された時にも追従できないため（2026-07-27。markerLayout.ts参照）
       const ctx = extractContext(sourceMessage!.content, pendingSelection.start, pendingSelection.end);
+      logMarkerSave('update', {
+        quotedText,
+        startOffset: pendingSelection.start,
+        endOffset: pendingSelection.end,
+        before: ctx.before,
+        after: ctx.after,
+      });
       await supabase
         .from('markers')
         .update({
@@ -425,6 +446,13 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       // 前後の文脈も保存する（2026-07-27）。offsetだけでは「同じ文字列の別の出現箇所」を
       // 区別できず、保存時の検証もそれを検出できない（どちらも文字列は一致するため）
       const ctx = extractContext(sourceMessage!.content, pendingSelection.start, pendingSelection.end);
+      logMarkerSave('insert', {
+        quotedText,
+        startOffset: pendingSelection.start,
+        endOffset: pendingSelection.end,
+        before: ctx.before,
+        after: ctx.after,
+      });
       const insertPayload = {
         conversation_id: conversationId,
         message_id: pendingSelection.messageId,
@@ -482,6 +510,10 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
   const layersByMessage = useMemo(() => {
     const map: Record<string, MarkerLayer[]> = {};
+    // 開発時のみ：保存↔表示のズレを追えるように、解決結果を1回のログにまとめて出す。
+    // 常時表示のUI通知は増えすぎるため出さない（exact/contextは自動復元でユーザー操作に
+    // 影響しない）。本番ビルドでは__DEV__がfalseになり一切実行されない
+    const resolutionLog: { markerId: string; resolvedStart: number | null; matchType: string }[] = [];
     for (const marker of markers) {
       if (marker.status === 'rejected') continue;
       const message = messages.find((m) => m.id === marker.message_id);
@@ -498,7 +530,11 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         contextBefore: marker.context_before,
         contextAfter: marker.context_after,
       });
-      if (!located) continue;
+      if (!located) {
+        resolutionLog.push({ markerId: marker.id, resolvedStart: null, matchType: 'missing' });
+        continue;
+      }
+      resolutionLog.push({ markerId: marker.id, resolvedStart: located.start, matchType: located.matchType });
       const layer: MarkerLayer = {
         id: marker.id,
         start: located.start,
@@ -508,6 +544,18 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       };
       (map[marker.message_id] ??= []).push(layer);
     }
+
+    if (typeof __DEV__ !== 'undefined' && __DEV__ && resolutionLog.length > 0) {
+      const counts = resolutionLog.reduce<Record<string, number>>((acc, r) => {
+        acc[r.matchType] = (acc[r.matchType] ?? 0) + 1;
+        return acc;
+      }, {});
+      // 要注意（自動復元できていない）ものだけ個別に出す。exactは件数だけで十分
+      const needsAttention = resolutionLog.filter((r) => r.matchType === 'text_only' || r.matchType === 'missing');
+      // eslint-disable-next-line no-console
+      console.log('[marker] 表示時の位置解決: ' + JSON.stringify({ counts, needsAttention }, null, 2));
+    }
+
     return map;
   }, [markers, messages]);
 

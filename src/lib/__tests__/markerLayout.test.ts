@@ -317,7 +317,7 @@ describe('resolveMarkerPosition', () => {
         contextBefore: ctx.before,
         contextAfter: ctx.after,
       }),
-    ).toEqual({ start, end: start + 6, confidence: 'exact' });
+    ).toEqual({ start, end: start + 6, matchType: 'exact' });
   });
 
   it('【本題】offsetが失われていても、文脈から3つ目のGeminiを特定できる', () => {
@@ -330,7 +330,7 @@ describe('resolveMarkerPosition', () => {
       contextBefore: ctx.before,
       contextAfter: ctx.after,
     });
-    expect(resolved).toEqual({ start, end: start + 6, confidence: 'context' });
+    expect(resolved).toEqual({ start, end: start + 6, matchType: 'context' });
     // 最初の一致（＝従来の誤った挙動）に落ちていないこと
     expect(resolved!.start).not.toBe(occurrences[0]);
   });
@@ -348,7 +348,7 @@ describe('resolveMarkerPosition', () => {
       contextBefore: ctx.before,
       contextAfter: ctx.after,
     });
-    expect(resolved).toEqual({ start: trueStart, end: trueStart + 6, confidence: 'context' });
+    expect(resolved).toEqual({ start: trueStart, end: trueStart + 6, matchType: 'context' });
   });
 
   it('2つ目のGeminiも文脈で正しく特定できる', () => {
@@ -364,7 +364,7 @@ describe('resolveMarkerPosition', () => {
     expect(resolved!.start).toBe(start);
   });
 
-  it('文脈が無く複数出現する場合は最初の一致だが、fallbackとして申告する', () => {
+  it('文脈が無く複数出現する場合は最初の一致だが、text_onlyとして申告する', () => {
     const resolved = resolveMarkerPosition(content, {
       quotedText: 'Gemini',
       startOffset: null,
@@ -372,7 +372,7 @@ describe('resolveMarkerPosition', () => {
       contextBefore: null,
       contextAfter: null,
     });
-    expect(resolved).toEqual({ start: occurrences[0], end: occurrences[0] + 6, confidence: 'fallback' });
+    expect(resolved).toEqual({ start: occurrences[0], end: occurrences[0] + 6, matchType: 'text_only' });
   });
 
   it('出現が1回だけなら文脈が無くてもexact', () => {
@@ -383,7 +383,7 @@ describe('resolveMarkerPosition', () => {
       contextBefore: null,
       contextAfter: null,
     });
-    expect(resolved!.confidence).toBe('exact');
+    expect(resolved!.matchType).toBe('exact');
     expect(content.slice(resolved!.start, resolved!.end)).toBe('翻訳用');
   });
 
@@ -412,7 +412,7 @@ describe('resolveMarkerPosition', () => {
       contextAfter: ctx.after,
     });
     expect(shifted.slice(resolved!.start, resolved!.end)).toBe('Gemini');
-    expect(resolved!.confidence).toBe('context');
+    expect(resolved!.matchType).toBe('context');
     // ずれた分だけ後ろに来ているはず
     expect(resolved!.start).toBeGreaterThan(start);
   });

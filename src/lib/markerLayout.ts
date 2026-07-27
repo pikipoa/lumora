@@ -188,16 +188,23 @@ export interface MarkerPositionHint {
   contextAfter: string | null;
 }
 
+/**
+ * 位置をどこまで確実に復元できたか。
+ * - exact     : offsetがそのまま正しい（文脈も一致）／本文中に1箇所しかない
+ * - context   : offsetは使えなかったが、前後の文脈から出現箇所を特定できた
+ * - text_only : 文字列は見つかったが複数箇所あり、決め手がない（最初の一致を採用）
+ * - missing   : 本文中に見つからない
+ *
+ * UIでの扱い（2026-07-27方針）：exact/contextは自動復元でユーザー操作に影響しないため
+ * 画面には何も出さない。通知を出すのは本当に曖昧な text_only と missing だけにする。
+ * 「推測で復元しました」を常時出すと通常利用で通知が増えすぎるため。
+ */
+export type MarkerMatchType = 'exact' | 'context' | 'text_only' | 'missing';
+
 export interface ResolvedMarkerPosition {
   start: number;
   end: number;
-  /**
-   * どこまで確実に復元できたか。
-   * - exact   : 保存されたoffsetがそのまま正しい（文脈も一致）
-   * - context : offsetは使えなかったが、前後の文脈から出現箇所を特定できた
-   * - fallback: 文脈でも決められず、最初の出現箇所を採用した（誤りの可能性あり）
-   */
-  confidence: 'exact' | 'context' | 'fallback';
+  matchType: Exclude<MarkerMatchType, 'missing'>;
 }
 
 /** 末尾同士・先頭同士で何文字一致するか（保存時に端が切れている場合を許容するため） */
@@ -241,7 +248,8 @@ function allOccurrences(content: string, quotedText: string): number[] {
  *
  *   1. offsetが正しく、前後の文脈も一致する      → exact
  *   2. 全出現箇所のうち、前後の文脈が最も一致するもの → context
- *   3. どれも決め手がなければ最初の出現箇所        → fallback（誤りの可能性あり）
+ *   3. 複数箇所あるが決め手がない             → text_only（最初の一致。誤りの可能性あり）
+ *   本文中に見つからなければ null を返す（＝missing）
  */
 export function resolveMarkerPosition(content: string, hint: MarkerPositionHint): ResolvedMarkerPosition | null {
   const { quotedText, startOffset, endOffset, contextBefore, contextAfter } = hint;
@@ -259,11 +267,17 @@ export function resolveMarkerPosition(content: string, hint: MarkerPositionHint)
   // 1) 保存されたoffsetをまず信じる。ただしテキストが一致することと、
   //    文脈を持っているならそれも一致することを条件にする
   if (startOffset != null && endOffset != null && content.slice(startOffset, endOffset) === quotedText) {
-    if (!hasContext) return { start: startOffset, end: endOffset, confidence: 'exact' };
+    if (!hasContext) return { start: startOffset, end: endOffset, matchType: 'exact' };
     const expected = extractContext(content, startOffset, endOffset);
-    const beforeOk = (contextBefore ?? '') === '' || expected.before.endsWith(contextBefore ?? '') || (contextBefore ?? '').endsWith(expected.before);
-    const afterOk = (contextAfter ?? '') === '' || expected.after.startsWith(contextAfter ?? '') || (contextAfter ?? '').startsWith(expected.after);
-    if (beforeOk && afterOk) return { start: startOffset, end: endOffset, confidence: 'exact' };
+    const beforeOk =
+      (contextBefore ?? '') === '' ||
+      expected.before.endsWith(contextBefore ?? '') ||
+      (contextBefore ?? '').endsWith(expected.before);
+    const afterOk =
+      (contextAfter ?? '') === '' ||
+      expected.after.startsWith(contextAfter ?? '') ||
+      (contextAfter ?? '').startsWith(expected.after);
+    if (beforeOk && afterOk) return { start: startOffset, end: endOffset, matchType: 'exact' };
     // 文脈が合わない＝本文がずれた、もしくはoffsetが別の出現箇所を指している。2)へ
   }
 
@@ -287,15 +301,16 @@ export function resolveMarkerPosition(content: string, hint: MarkerPositionHint)
     }
     // 1文字でも決め手があり、かつ同点で並んでいないなら採用する
     if (bestScore > 0 && !tie) {
-      return { start: bestStart, end: bestStart + quotedText.length, confidence: 'context' };
+      return { start: bestStart, end: bestStart + quotedText.length, matchType: 'context' };
     }
   }
 
-  // 3) 決め手なし。最初の出現箇所（従来どおりの挙動）
+  // 3) 決め手なし。最初の出現箇所（従来どおりの挙動）。
+  //    ただし本文中に1箇所しかないなら曖昧さは無いのでexactとして扱う
   const first = occurrences[0];
   return {
     start: first,
     end: first + quotedText.length,
-    confidence: occurrences.length === 1 ? 'exact' : 'fallback',
+    matchType: occurrences.length === 1 ? 'exact' : 'text_only',
   };
 }

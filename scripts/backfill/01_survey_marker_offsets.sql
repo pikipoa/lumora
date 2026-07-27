@@ -16,31 +16,37 @@
 -- ============================================================
 -- 1) 全体像：Tierごとの件数
 -- ============================================================
+-- 注意：出現回数を replace() の長さ差で数える方法は、重なり合う出現を数え落とす
+-- （本文 "あああ" における "ああ" は2箇所あるが1回と判定される）。ここでは
+-- 「最初の一致より後ろにもう1つ一致があるか」で一意性を判定する。
 with target as (
   select
     m.id,
     m.quoted_text,
     msg.content,
-    -- 本文中に quoted_text が何回出現するか
     case
       when m.quoted_text is null or m.quoted_text = '' then 0
-      else (length(msg.content) - length(replace(msg.content, m.quoted_text, ''))) / length(m.quoted_text)
-    end as occurrences
+      else position(m.quoted_text in msg.content)
+    end as pos
   from markers m
   join messages msg on msg.id = m.message_id
   where m.start_offset is null
     and m.status <> 'rejected'
+),
+classified as (
+  select
+    id,
+    case
+      when pos = 0 then 'Tier 3（本文に見つからない・保留）'
+      when position(quoted_text in substring(content from pos + 1)) = 0 then 'Tier 1（1箇所のみ・offset自動確定可）'
+      else 'Tier 2（複数箇所・データからは復元不能）'
+    end as tier
+  from target
 )
-select
-  case
-    when occurrences = 1 then 'Tier 1（出現1回・自動確定可）'
-    when occurrences > 1 then 'Tier 2（複数回出現・要推定）'
-    else 'Tier 3（本文に見つからない・保留）'
-  end as tier,
-  count(*) as marker_count
-from target
-group by 1
-order by 1;
+select tier, count(*) as marker_count
+from classified
+group by tier
+order by tier;
 
 -- ============================================================
 -- 2) Tier 2 の内訳：何回出現するマーカーがどれだけあるか

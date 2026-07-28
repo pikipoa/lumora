@@ -184,11 +184,18 @@ export const ja = {
     realmStepTitle: 'どのRealmへ',
     newRealmOption: '＋ 新しいRealm',
     createRealmAndAssign: '作成して収納',
-    positionMismatchTitle: 'マーカーを保存できませんでした',
-    positionMismatchBody: (selected: string) =>
-      `選択した「${selected}」の位置を正しく特定できなかったため、保存を中止しました。\n\n` +
-      '翻訳・文章校正などのブラウザ拡張機能がページを書き換えていると発生します。' +
-      'シークレットウィンドウで開くか、この画面で拡張機能をオフにしてからお試しください。',
+    // シート内のエラー1行（2026-07-28）。コードから文言へはここで解決する。
+    // 原因を1つに決めつけず、経路ごとに「次に何をすればよいか」だけを書く。
+    // 旧 positionMismatchTitle/Body は`Alert`（react-native-webでは空実装）専用だったため削除し、
+    // 拡張機能の可能性だけを「断定しない補足」として position_mismatch に残した
+    sheetError: {
+      selection_lost: '選択が失われました。もう一度選択してください。',
+      auth_required: 'サインイン状態を確認してください。',
+      position_mismatch:
+        '選択位置を確認できませんでした。もう一度選択してください。' +
+        '（翻訳・文章校正などのブラウザ拡張機能が原因のことがあります）',
+      realm_create_failed: 'Realmを作成できませんでした。',
+    } as const,
   },
 
   realms: {

@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // requireへ落とすかを判断すること
 import { createPortal } from 'react-dom';
 
-import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -82,6 +82,14 @@ interface PendingSelection {
   text: string;
 }
 
+/**
+ * シート内に出す失敗理由の識別子（2026-07-28）。
+ * 文字列メッセージではなくコードで持つ理由：Sentry・将来のAnalytics・多言語化で
+ * 同じ識別子を使い回せるため。文言への変換はUI側（`t.conversation.sheetError`）で行う。
+ * 原因を推測して1つに決めつけず、実際に通った経路をそのまま名前にしている。
+ */
+type SheetErrorCode = 'selection_lost' | 'auth_required' | 'position_mismatch' | 'realm_create_failed';
+
 interface Props {
   conversationId: string;
   jumpToMarkerId?: string | null;
@@ -131,6 +139,11 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   } | null>(null);
   /** 「＋ 新しいRealm」を選んだ時の入力欄 */
   const [newRealmName, setNewRealmName] = useState<string | null>(null);
+  /** シート内に1行だけ出す失敗理由。**コードで持ち、文言はUI側（i18n）で解決する**
+   *  （2026-07-28）。Sentry・将来のAnalytics・多言語化で同じ識別子を使えるようにするため。
+   *  react-native-webの`Alert`は空実装（`static alert() {}`）で、これまで保存失敗を
+   *  一度も画面に出せていなかった。原因が何であれ黙って操作を捨てないための受け皿 */
+  const [sheetErrorCode, setSheetErrorCode] = useState<SheetErrorCode | null>(null);
 
   // 選択中の候補（まだ確定していない）と、確定までの待機タイマー。
   // イベントハンドラ内から最新値を読む必要があるためstateではなくrefで持つ
@@ -200,6 +213,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setQuoteExpanded(false);
     setRealmPicker(null);
     setNewRealmName(null);
+    setSheetErrorCode(null);
     setLoading(true);
   }, [conversationId]);
 
@@ -292,6 +306,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       setEditingMarkerId(null);
       setSheetColor(null);
       setQuoteExpanded(false);
+      setSheetErrorCode(null);
       // 引用はシート内に再掲するので、本文側の選択はここで解除してよい
       window.getSelection()?.removeAllRanges();
     };
@@ -375,6 +390,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setQuoteExpanded(false);
     setRealmPicker(null);
     setNewRealmName(null);
+    setSheetErrorCode(null);
   }
 
   /**
@@ -391,6 +407,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setSheetColor(marker.color);
     setQuoteExpanded(false);
     setRealmPicker(null);
+    setSheetErrorCode(null);
   }
 
   /**
@@ -429,13 +446,16 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     console.log(`[marker] 保存(${kind}): ` + JSON.stringify(payload, null, 2));
   }
 
-  /** 座標検証に失敗した時：ユーザーへ原因を伝え、Sentryにも残す（黙って失敗させない） */
+  /** 座標検証に失敗した時：ユーザーへ原因を伝え、Sentryにも残す（黙って失敗させない）。
+   *  以前は`Alert.alert`で通知していたが、react-native-webの`Alert`は空実装
+   *  （`static alert() {}`）で**一度も画面に出ていなかった**。シート内の1行へ変更した
+   *  （2026-07-28）。Sentryへの記録は従来どおり残す */
   function reportPositionMismatch(quotedText: string) {
     Sentry.captureMessage('マーカーの選択位置の検証に失敗（ブラウザ拡張機能によるDOM書き換えの疑い）', {
       level: 'warning',
       extra: { quotedTextLength: quotedText.length, conversationId },
     });
-    Alert.alert(t.conversation.positionMismatchTitle, t.conversation.positionMismatchBody(quotedText));
+    setSheetErrorCode('position_mismatch');
   }
 
   async function recordMarkerHistory(markerId: string, color: string | null, status: string) {
@@ -446,10 +466,19 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   }
 
   async function confirmPendingMarker(color: string) {
-    if (!pendingSelection || !conversationId) return;
+    // 以下3つの経路は、いずれも「押しても何も起きない」という同じ症状になる。
+    // どれを通ったかをコードで残し、シート内に理由を1行出す（2026-07-28）
+    if (!pendingSelection || !conversationId) {
+      setSheetErrorCode('selection_lost');
+      return;
+    }
+    setSheetErrorCode(null);
     const { data: userRes } = await supabase.auth.getUser();
     const userId = userRes.user?.id;
-    if (!userId) return;
+    if (!userId) {
+      setSheetErrorCode('auth_required');
+      return;
+    }
 
     // v2.1認知フロー：確定した直後、そのマーカーがRealm未割当なら「Realmを選ぶ」ステップへ進む
     let nextRealmPickerId: string | null = null;
@@ -565,14 +594,21 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
    */
   async function createRealmAndAssign(markerId: string, name: string) {
     const trimmed = name.trim();
-    if (!trimmed || !userId) return;
+    if (!trimmed) return;
+    if (!userId) {
+      setSheetErrorCode('auth_required');
+      return;
+    }
+    setSheetErrorCode(null);
     const { data: created, error } = await supabase
       .from('projects')
       .insert({ name: trimmed, user_id: userId })
       .select('id')
       .single();
     if (error || !created) {
-      Alert.alert(t.realms.newRealmFormTitle, error?.message ?? '');
+      // 元は空実装のAlert.alertでDBのエラーメッセージを出そうとしていた（2026-07-28修正）
+      Sentry.captureMessage('Realmの作成に失敗', { level: 'warning', extra: { message: error?.message } });
+      setSheetErrorCode('realm_create_failed');
       return;
     }
     await assignMarkerToRealm(markerId, created.id);
@@ -746,7 +782,11 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                 {MARKER_COLORS.map((c) => (
                   <Pressable
                     key={c.key}
-                    onPress={() => setSheetColor(c.key)}
+                    onPress={() => {
+                      // 色を選び直す＝やり直しの意思表示なので、前回の失敗理由は消す
+                      setSheetColor(c.key);
+                      setSheetErrorCode(null);
+                    }}
                     style={[
                       styles.sheetSwatch,
                       { backgroundColor: c.hex },
@@ -777,6 +817,13 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                 </Pressable>
               )}
             </>
+          )}
+          {/* 失敗理由は1行だけ。アイコン・枠線・背景色は付けない（主役は引用テキストのまま）。
+              色ステップ・Realmステップのどちらでも同じ位置に出す */}
+          {sheetErrorCode && (
+            <ThemedText type="small" themeColor="textSecondary" testID={`marker-sheet-error-${sheetErrorCode}`}>
+              {t.conversation.sheetError[sheetErrorCode]}
+            </ThemedText>
           )}
         </ThemedView>
       </View>

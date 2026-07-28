@@ -13,6 +13,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+// Phase1はWeb版のみのためstatic importで足りる（react-dom自体はreact-native-webの依存として
+// 既に入っている）。ネイティブ版に着手する際は、この1行のためだけに.web.tsxへ分割するか
+// requireへ落とすかを判断すること
+import { createPortal } from 'react-dom';
 
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -778,6 +782,20 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       </View>
     ) : null;
 
+  // シートはdocument.body直下へポータルする（2026-07-28、実機の不具合修正）。
+  // ポータルしないと、シートは<Stack>配下に描画される一方で下部タブバーは
+  // <Stack>の後ろの兄弟として置かれるため（app/_layout.tsx）、スタックコンテキストが
+  // 分かれてシートのzIndex:100とタブバーのzIndex:40が比較されない。結果、
+  // 画面下端から0〜72pxをタブバーが覆い、その帯にある決定ボタン（下端32〜84px）が
+  // 52pxのうち40px隠れて押せなくなっていた。
+  // body直下へ出すとアプリのルート要素より後ろに並ぶので、確実に最前面になる。
+  // 副次的な効果として、モーダル表示中にタブバーを押して別画面へ離脱できる穴も塞がる
+  // （タブバーの位置はスクリムが受け取り、シートを閉じる操作になる）。
+  const sheetPortal =
+    sheet && Platform.OS === 'web' && typeof document !== 'undefined'
+      ? createPortal(sheet, document.body)
+      : sheet;
+
   return (
     <>
       <ThemedText type="small" themeColor="textSecondary">
@@ -877,7 +895,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         })}
       </ThemedView>
 
-      {sheet}
+      {sheetPortal}
     </>
   );
 }
@@ -896,6 +914,9 @@ const styles = StyleSheet.create({
   // ── マーカー確定シート（2026-07-28）──────────────────────────────
   // 枠線・アイコン・説明文は置かない。引用テキストが最大要素で、色は点、
   // 決定は文字だけ（DESIGN.md 原則3 White Space Is UI / 原則4 Typography First）
+  // zIndex:100はdocument.body直下（ポータル先）での値。アプリのルート要素より後ろに
+  // 並ぶため実際には順序だけで最前面になるが、将来body直下に別のオーバーレイが
+  // 増えた時の比較用に明示しておく（下部タブバーのzIndex:40とは別コンテキスト）
   sheetOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 } as object,
   /** スクリム：黒の半透明。ライト/ダークどちらでも本文を沈める */
   sheetScrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000000A6' } as object,

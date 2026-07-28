@@ -184,18 +184,27 @@ export const ja = {
     realmStepTitle: 'どのRealmへ',
     newRealmOption: '＋ 新しいRealm',
     createRealmAndAssign: '作成して収納',
-    // シート内のエラー1行（2026-07-28）。コードから文言へはここで解決する。
-    // 原因を1つに決めつけず、経路ごとに「次に何をすればよいか」だけを書く。
-    // 旧 positionMismatchTitle/Body は`Alert`（react-native-webでは空実装）専用だったため削除し、
-    // 拡張機能の可能性だけを「断定しない補足」として position_mismatch に残した
+    // シート内のエラー（2026-07-28）。コードから文言へはここで解決する。
+    // 文面はDESIGN.md原則9「エラーは、配慮 → 行動 → 必要なら理由」に従う。
+    // messageは謝罪＋次の行動、noteは必要な時だけ添える理由（無ければnull）。
+    //
+    // selection_lostとposition_mismatchのmessageが同一なのは意図的：
+    // ユーザーにとって両者の違いは意味を持たず、やることは「選び直す」で同じ。
+    // 内部ではコードを分けたままSentryで追跡する。
+    // position_mismatchにだけnoteがあるのは、拡張機能が原因の場合「選び直す」を
+    // 何度繰り返しても必ず同じ結果になり、理由を知らないと無限に繰り返すため
     sheetError: {
-      selection_lost: '選択が失われました。もう一度選択してください。',
-      auth_required: 'サインイン状態を確認してください。',
-      position_mismatch:
-        '選択位置を確認できませんでした。もう一度選択してください。' +
-        '（翻訳・文章校正などのブラウザ拡張機能が原因のことがあります）',
-      realm_create_failed: 'Realmを作成できませんでした。',
-    } as const,
+      selection_lost: { message: 'すみません。もう一度テキストを選択してください。', note: null },
+      position_mismatch: {
+        message: 'すみません。もう一度テキストを選択してください。',
+        note: '翻訳・文章校正などのブラウザ拡張機能が原因のことがあります。',
+      },
+      auth_required: { message: 'サインインを確認してください。', note: null },
+      realm_create_failed: {
+        message: 'すみません。Realmを作成できませんでした。もう一度お試しください。',
+        note: null,
+      },
+    },
   },
 
   realms: {

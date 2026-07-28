@@ -818,12 +818,18 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
               )}
             </>
           )}
-          {/* 失敗理由は1行だけ。アイコン・枠線・背景色は付けない（主役は引用テキストのまま）。
-              色ステップ・Realmステップのどちらでも同じ位置に出す */}
+          {/* 失敗の伝え方はDESIGN.md原則9に従う：まず配慮、次にすぐできる行動、
+              理由は必要な時だけ2行目に小さく添える。アイコン・枠線・背景色は付けない
+              （主役は引用テキストのまま）。色ステップ・Realmステップの両方で同じ位置に出す */}
           {sheetErrorCode && (
-            <ThemedText type="small" themeColor="textSecondary" testID={`marker-sheet-error-${sheetErrorCode}`}>
-              {t.conversation.sheetError[sheetErrorCode]}
-            </ThemedText>
+            <View testID={`marker-sheet-error-${sheetErrorCode}`}>
+              <ThemedText type="small">{t.conversation.sheetError[sheetErrorCode].message}</ThemedText>
+              {t.conversation.sheetError[sheetErrorCode].note && (
+                <ThemedText type="small" themeColor="textSecondary" style={styles.sheetErrorNote}>
+                  {t.conversation.sheetError[sheetErrorCode].note}
+                </ThemedText>
+              )}
+            </View>
           )}
         </ThemedView>
       </View>
@@ -990,6 +996,8 @@ const styles = StyleSheet.create({
   sheetSwatchSelected: { outlineWidth: 2, outlineColor: '#E8ECF5', outlineOffset: 3, outlineStyle: 'solid' } as object,
   /** 行＝文字だけ。枠もアイコンも持たせない */
   sheetRow: { paddingVertical: Spacing.three },
+  /** 理由の行。1行目（配慮＋行動）より一段下げて、読む順序を目でも作る */
+  sheetErrorNote: { marginTop: Spacing.one },
   sheetInput: {
     borderBottomWidth: 1,
     paddingVertical: Spacing.two,

@@ -12,7 +12,7 @@
  * メモ機能は含まない（呼び出し側の責務。S6フルページのみが持つ）。
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -127,6 +127,17 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   } | null>(null);
   /** 「＋ 新しいRealm」を選んだ時の入力欄 */
   const [newRealmName, setNewRealmName] = useState<string | null>(null);
+
+  // 選択中の候補（まだ確定していない）と、確定までの待機タイマー。
+  // イベントハンドラ内から最新値を読む必要があるためstateではなくrefで持つ
+  const candidateRef = useRef<PendingSelection | null>(null);
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** シートが開いているか（イベントハンドラから参照するためstateのミラー）。
+   *  render中にrefを書き換えるのはReactの規約違反なのでeffectで同期する */
+  const sheetOpenRef = useRef(false);
+  useEffect(() => {
+    sheetOpenRef.current = pendingSelection !== null || realmPicker !== null;
+  }, [pendingSelection, realmPicker]);
 
   // Realmチップの並び順（あとで→直近使用順）用。ユーザーIDが分かってから読み込む
   const [userId, setUserId] = useState<string | null>(null);
@@ -245,17 +256,53 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
   // Step6スパイクの結論：ブラウザ標準Selection APIで範囲を読み取る。
   //
-  // 【2026-07-28】読み取った直後にブラウザの選択を解除するようになった。引用テキストは
-  // 確定シート内へ再掲するため、本文側の選択を保持する必要がない。これにより
-  // ブラウザ標準の選択メニュー（コピー/共有）が出なくなり、Lumoraの色UIと衝突しない。
-  // 位置合わせ（selectionRect）も不要になった。
+  // 【2026-07-28】引用テキストは確定シート内へ再掲するため、確定後は本文側の選択を
+  // 保持しなくてよい（ブラウザ標準の選択メニューも消える）。
+  //
+  // ただし**選択が終わってから**確定すること。selectionchangeはドラッグ中に何度も
+  // 発火するため、最初の発火で確定して選択を解除すると、1文字捉えた時点でシートが開き
+  // 範囲を伸ばせなくなる（2026-07-28に実際に作り込んだ不具合）。
+  //   - マウス：pointerupが「選択し終わった」の明確な合図なので、そこで確定
+  //   - タッチ：長押し選択もハンドル操作も selectionchange が連続で出る。最後の変更から
+  //     一定時間動きが無ければ確定する（ハンドルを掴めばタイマーは毎回リセットされる）
   useEffect(() => {
     if (Platform.OS !== 'web') return;
+
+    /** タッチで「選択し終わった」とみなすまでの待ち時間。長押し直後にハンドルを掴む余地を残す */
+    const TOUCH_SETTLE_MS = 900;
+
+    const clearTimer = () => {
+      if (commitTimerRef.current != null) {
+        clearTimeout(commitTimerRef.current);
+        commitTimerRef.current = null;
+      }
+    };
+
+    /** 保留中の候補を確定してシートを開く */
+    const commit = () => {
+      clearTimer();
+      const candidate = candidateRef.current;
+      candidateRef.current = null;
+      if (!candidate) return;
+      setPendingSelection(candidate);
+      setEditingMarkerId(null);
+      setSheetColor(null);
+      setQuoteExpanded(false);
+      // 引用はシート内に再掲するので、本文側の選択はここで解除してよい
+      window.getSelection()?.removeAllRanges();
+    };
+
     function onSelectionChange() {
+      // シートを開いている間は本文の選択を追わない（シート内テキストの選択等に反応しない）
+      if (sheetOpenRef.current) return;
+
       const sel = window.getSelection();
-      // 選択が消えた時：シートを開いている最中なら閉じない（シート内の操作で
-      // 選択が解除されるため。閉じるのはシート側の明示的な操作に限る）
-      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+        // 選択が解除された＝作りかけの候補も捨てる
+        candidateRef.current = null;
+        clearTimer();
+        return;
+      }
       const domRange = sel.getRangeAt(0);
 
       // どのメッセージ内の選択かは、JS側のマップ（旧messageRefs）ではなくDOM自身が持つ
@@ -287,16 +334,28 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
       const { start, end, text } = rangeToOffsets(messageEl, domRange);
       if (!text) return;
-      setPendingSelection({ messageId, start, end, text });
-      setEditingMarkerId(null);
-      setSheetColor(null);
-      setQuoteExpanded(false);
-      // 引用はシート内に再掲するので、本文側の選択はここで解除してよい。
-      // ブラウザ標準の選択メニューもこれで消える
-      window.getSelection()?.removeAllRanges();
+
+      // ここでは確定しない。候補として保持し、選択が落ち着いてから確定する
+      candidateRef.current = { messageId, start, end, text };
+      clearTimer();
+      commitTimerRef.current = setTimeout(commit, TOUCH_SETTLE_MS);
     }
+
+    // マウスは「離した＝選択し終わった」が明確。待たずに確定する。
+    // タッチ／ペンは長押し選択の直後にハンドル操作が続きうるので、上のタイマーに任せる
+    function onPointerUp(e: PointerEvent) {
+      if (e.pointerType !== 'mouse' || sheetOpenRef.current) return;
+      // このpointerupの後に最後のselectionchangeが来ることがあるため、1フレーム待つ
+      setTimeout(commit, 0);
+    }
+
     document.addEventListener('selectionchange', onSelectionChange);
-    return () => document.removeEventListener('selectionchange', onSelectionChange);
+    document.addEventListener('pointerup', onPointerUp);
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange);
+      document.removeEventListener('pointerup', onPointerUp);
+      clearTimer();
+    };
   }, [conversationId, instanceId]);
 
   function clearNativeSelection() {

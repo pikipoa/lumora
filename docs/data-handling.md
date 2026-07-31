@@ -244,7 +244,9 @@ AsyncStorageに加え、Web版では`localStorage`/`sessionStorage`も消す。�
   `trust-model.md`の「いつでも離れられることは信頼の一部」に照らすと、「離れられる」が
   「捨てるしかない」になっている。削除できないことの方が深刻なため削除を先に実装したが、
   **これは既知の未解消項目である**。削除確認画面には「現在エクスポート機能はありません」と
-  明記して隠さない。Phase2で対応する
+  明記して隠さない。**対応の優先順位・形態は`docs/future/knowledge-pack-market.md`
+  5-5章に記載**（Realm Session → PDF Export → External Knowledge Distribution の順。
+  第一目的はデータ可搬性であり、外部配布は最後）
 - 削除後の完全消去までの猶予期間を設けていない（即時削除）
 
 ---

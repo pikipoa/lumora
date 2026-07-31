@@ -18,8 +18,28 @@ function ensureInit() {
     environment: Deno.env.get('SENTRY_ENVIRONMENT') ?? 'production',
     sendDefaultPii: false,
     tracesSampleRate: 0,
+    // クライアント側（src/lib/sentry.ts）と同じく、送信直前にもう一段スクラブする。
+    // 2026-07-31の法務レビューで、タグ作成失敗時のエラーメッセージにタグ名（＝ユーザーの
+    // 知識に由来する文字列）が含まれ、Sentryへ送られうることが判明した。
+    // 個々の呼び出し側で気をつけるだけでは漏れるため、共通の出口で止める
+    beforeSend(event) {
+      for (const value of event.exception?.values ?? []) {
+        if (value.value) value.value = redactParenthesized(value.value);
+      }
+      if (event.message) event.message = redactParenthesized(event.message);
+      return event;
+    },
   });
   initialized = true;
+}
+
+/**
+ * `... (ユーザー由来の文字列): 詳細` という形のメッセージから、括弧の中身を伏せる。
+ * エラーメッセージへ具体的な値を埋め込む書き方は今後も混入しうるため、**値そのものを
+ * 消す**方針にした（キー名で判定するクライアント側の方式は、メッセージ本文には効かない）。
+ */
+function redactParenthesized(text: string): string {
+  return text.replace(/\(([^)]*)\)/g, '(＿)');
 }
 
 /**

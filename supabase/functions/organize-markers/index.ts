@@ -212,7 +212,11 @@ Deno.serve(withSentry('organize-markers', async (req: Request) => {
         .insert({ user_id: userId, name, tag_type: tagType })
         .select('id')
         .single();
-      if (error || !inserted) throw new Error(`タグ作成に失敗 (${name}): ${error?.message}`);
+      // タグ名（＝ユーザーの知識に由来する文字列）をエラーメッセージへ入れない。
+      // このエラーはcaptureEdgeFunctionError経由でSentryへ送られるため、
+      // 名前を含めると本文をSentryへ渡さないという方針が破れる（2026-07-31の法務レビュー）。
+      // 共通のbeforeSendでも伏せているが、そもそも入れないのが筋
+      if (error || !inserted) throw new Error(`タグ作成に失敗 (tag_type=${tagType}): ${error?.message}`);
       tagCache.set(key, inserted.id);
       return inserted.id;
     };

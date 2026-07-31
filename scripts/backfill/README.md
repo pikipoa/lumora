@@ -29,23 +29,57 @@ SQLだけで安全に確定できるのは「出現が1回だけ」のものに�
 `start_offset`が`null`のマーカーから文脈を作ると、結局`indexOf`に頼ることになり、
 「Gemini」が3回出る本文で本当は3つ目だったマーカーに1つ目の文脈を焼き付けてしまう。
 
+## ⚠️ 書き込み処理をSQLからTypeScriptへ移した（2026-07-31）
+
+**`02_backfill_context_for_known_offsets.sql` と `03_backfill_offset_unambiguous.sql` は
+削除した。走らせるとデータを壊すことが実データで判明したため。**
+
+`markers.start_offset` / `end_offset` は **JavaScriptのUTF-16コードユニット** 単位で
+保存されている（`content.slice(start, end)` の引数そのもの）。一方 PostgreSQL の
+`substring(content from N for L)` / `position(x in y)` は **文字（コードポイント）** 単位で
+数える。絵文字（サロゲートペア）はJSで2、Postgresで1と数えるため、両者は一致しない。
+
+旧SQL版を走らせていた場合の被害：
+
+- **`03`** が文字位置を`start_offset`として書き込み、絵文字より後ろのマーカーが全部ずれる
+- **`02`** がそのずれた位置から文脈を生成し、**自己修復不能な誤りを焼き付ける**（下記の
+  非対称性の原則により、誤った文脈は永久に訂正されない）
+
+実データで検証したところ、旧SQLの健全性チェックは19件を「壊れている」と報告したが、
+うち5件は**正常なマーカーの誤判定**だった（1件は当日作成のもの）。詳細は`CHANGELOG.md` 2026-07-31。
+
 ## 実行手順
 
 1. **`01_survey_marker_offsets.sql`**（読み取りのみ・変更なし）で現状を把握する
-2. **`02_backfill_context_for_known_offsets.sql`** — 位置が確実なマーカーに文脈を付ける
-   - 対象：`start_offset`があり、かつその位置のテキストが`quoted_text`と一致するもの
-   - **完全に安全**（位置が確定しているので文脈も一意に定まる）
-3. **`03_backfill_offset_unambiguous.sql`** — 本文中に1箇所しか無いマーカーにoffsetを付ける
-   - **文脈は書かない**（意図的。上の原則を参照）
-   - 重なり合う出現も正しく検出する（`replace()`による回数カウントは使わない）
-4. 3のあとで **2をもう一度流す** と、そこで確定したoffsetにも文脈が付く
+   - Supabaseダッシュボードの SQL Editor で実行する
+   - 4)の健全性チェックは、JSオフセットを文字位置へ変換してから比較する（修正済み）
+2. **`backfill-marker-offsets.ts`** — offsetと文脈の付与。既定はドライラン
 
-各スクリプトとも、末尾の検証クエリが **0 であることを確認してから commit**。
-0 でなければ rollback すること。
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npx tsx scripts/backfill/backfill-marker-offsets.ts
+```
+
+書き込むときだけ `--apply` を付ける。
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npx tsx scripts/backfill/backfill-marker-offsets.ts --apply
+```
+
+service roleキーはRLSを迂回する。**リポジトリにコミットしないこと。**
+
+スクリプト内部の順序は Phase 1（offset）→ Phase 2（文脈）で固定されている。Phase 1で
+offsetが確定したマーカーにも、同じ実行の中で文脈が付く（旧手順の「3のあとで2をもう一度流す」に相当）。
+
+### なぜTypeScriptなのか
+
+**アプリと同じ関数（`extractContext`）と同じJS文字列操作を使うため。** 意味論のずれが
+原理的に発生しない。SQLでUTF-16オフセットを扱うには変換を挟む必要があり、その変換自体が
+今回のバグの原因だった。読み取り専用の調査はSQLのままでよいが、**書き込みはアプリと
+同じ言語・同じ関数で行う**。
 
 ## 前提：先にマイグレーションを適用すること
 
-`02_backfill_tier1.sql`は`context_before`/`context_after`列に書き込むため、
+文脈の付与は`context_before`/`context_after`列に書き込むため、
 `20260727000001_marker_context.sql`が適用済みである必要がある。
 
 ## Tier 2 について（重要な限界）

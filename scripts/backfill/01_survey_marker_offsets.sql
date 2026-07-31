@@ -97,12 +97,50 @@ order by m.created_at desc
 limit 20;
 
 -- ============================================================
--- 4) 参考：既にstart_offsetを持つマーカーの健全性チェック
---    保存済みの位置が実際のテキストと一致しているか（1件でも出たら要調査）
+-- 4) 既にstart_offsetを持つマーカーの健全性チェック
+--
+--    【重要・2026-07-31修正】
+--    start_offset / end_offset は **JavaScriptのUTF-16コードユニット** 単位で保存されている
+--    （`content.slice(start, end)` の引数そのもの）。一方 Postgres の substring() は
+--    **文字（コードポイント）** 単位で数える。絵文字はJSで2、Postgresで1と数えるため、
+--    絵文字を含む本文では両者が一致しない。
+--
+--    修正前はこの違いを無視して substring() で直接比較しており、**正常なマーカーを
+--    「壊れている」と誤判定していた**（実データで19件中5件が誤判定。うち1件は当日作成の
+--    正常なマーカー）。詳細は CHANGELOG.md 2026-07-31。
+--
+--    ここでは保存されたJSオフセットを文字位置へ変換してから比較する。
 -- ============================================================
+with resolved as (
+  select
+    m.id,
+    m.quoted_text,
+    -- JSオフセットに対応する文字位置（0始まり）。
+    -- 先頭から1文字ずつUTF-16での長さ（4バイト文字は2、それ以外は1）を積み上げ、
+    -- 累計が start_offset 以下である文字数＝求める文字位置
+    (
+      select count(*)
+      from (
+        select sum(case when octet_length(substring(msg.content from i for 1)) = 4 then 2 else 1 end)
+                 over (order by i) as cum
+        from generate_series(1, length(msg.content)) as i
+      ) t
+      where t.cum <= m.start_offset
+    ) as char_pos,
+    msg.content
+  from markers m
+  join messages msg on msg.id = m.message_id
+  where m.start_offset is not null
+    and m.end_offset is not null
+    and m.quoted_text is not null
+)
 select count(*) as inconsistent_saved_offsets
-from markers m
-join messages msg on msg.id = m.message_id
-where m.start_offset is not null
-  and m.end_offset is not null
-  and substring(msg.content from m.start_offset + 1 for m.end_offset - m.start_offset) <> m.quoted_text;
+from resolved
+where substring(content from char_pos + 1 for length(quoted_text)) <> quoted_text;
+
+-- 4-b) 不一致の中身を見る（0でなかった場合）
+-- with resolved as ( ...上と同じ... )
+-- select id, quoted_text, char_pos,
+--        substring(content from char_pos + 1 for length(quoted_text)) as actual
+-- from resolved
+-- where substring(content from char_pos + 1 for length(quoted_text)) <> quoted_text;

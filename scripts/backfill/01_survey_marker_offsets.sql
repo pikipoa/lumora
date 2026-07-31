@@ -51,12 +51,20 @@ order by tier;
 -- ============================================================
 -- 2) Tier 2 の内訳：何回出現するマーカーがどれだけあるか
 --    （2回程度なら文脈推定の効果が高い。10回以上なら保留が無難）
+--
+--    ここも replace() の長さ差では数えない（重なり合う出現を数え落とし、
+--    1)のTier 2件数と合わなくなるため。2026-07-31修正）。
+--    全開始位置を走査して実際の出現数を数える。件数が少ない個人データ向けの
+--    素朴な実装であり、性能は問わない。
 -- ============================================================
 with target as (
   select
     m.id,
-    m.quoted_text,
-    (length(msg.content) - length(replace(msg.content, m.quoted_text, ''))) / length(m.quoted_text) as occurrences
+    (
+      select count(*)
+      from generate_series(1, greatest(length(msg.content) - length(m.quoted_text) + 1, 0)) as i
+      where substring(msg.content from i for length(m.quoted_text)) = m.quoted_text
+    ) as occurrences
   from markers m
   join messages msg on msg.id = m.message_id
   where m.start_offset is null

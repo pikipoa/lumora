@@ -94,6 +94,11 @@ TypeScript版をドライラン→`--apply`で実行した。
 
 SQL（修正版）・TypeScript（`content.slice`）・作成時刻の3つが独立に同じ集合を指した。
 
+**11件は`rejected`にした**（`scripts/backfill/reject-unrecoverable-markers.sql`、2026-07-31）。
+物理削除ではなく、`marker_history`にも遷移を記録している。放置すると、`context_before`を
+持たない世代であるため`resolveMarkerPosition`の段階2が効かず、**間違った位置に色がついたまま
+永久に直らない**ためである。実行後の検証で残存0を確認した。
+
 **Tier 2を埋めなかったのは意図的である。** これらは現在`indexOf`フォールバックで最初の一致に
 表示されている。「最初の一致」でoffsetを埋めても表示は変わらず、**推測値が確定値の顔をして
 保存されるだけ**になる（`README.md`の`offset_source`列の議論を参照）。

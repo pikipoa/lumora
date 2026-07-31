@@ -117,26 +117,70 @@ export function findSegmentInvariantViolations(content: string, segments: TextSe
   return violations;
 }
 
+/**
+ * 同じ文字位置を複数のマーカーが覆う時、どちらを表示するかを決める。
+ * **最小区間が勝つ**（DESIGN.md「マーカーの重なり — 表示優先順位」）。
+ *
+ * 長い引用の中の特定語に別の色を引く、という使い方が実在するため、狭い方＝より具体的な
+ * 指定とみなす。同幅なら created_at → id で一意に決める（同値キーには必ず一意な
+ * タイブレーカーを付ける。search-spec.md 3-6と同じ理由）。
+ */
+interface ClampedLayer {
+  /** 元のレイヤーをそのまま保持する。セグメントにはこれを入れる（クランプしたコピーではなく）。
+   *  呼び出し側が layer.start / layer.end を編集時の範囲として使うため */
+  layer: MarkerLayer;
+  start: number;
+  end: number;
+}
+
+function isNarrower(a: ClampedLayer, b: ClampedLayer): boolean {
+  const widthA = a.end - a.start;
+  const widthB = b.end - b.start;
+  if (widthA !== widthB) return widthA < widthB;
+  // 呼び出し側が created_at 順に並べて渡す前提。ここでは id で最終的な一意性を担保する
+  return a.layer.id < b.layer.id;
+}
+
 export function computeSegments(content: string, layers: MarkerLayer[]): TextSegment[] {
   // 長さ0のセグメントは情報を持たず、不変条件（start < end）も満たさないので作らない
   if (content.length === 0) return [];
   if (layers.length === 0) return [{ text: content, layer: null, start: 0, end: content.length }];
 
-  const sorted = [...layers].sort((a, b) => a.start - b.start || a.end - b.end);
-  const segments: TextSegment[] = [];
-  let cursor = 0;
+  // 本文の範囲へクランプし、空になったレイヤーは捨てる。
+  // レイヤー自体は元のオブジェクトのまま保持する（コピーを返すと、呼び出し側が
+  // layer.start / layer.end を編集時の範囲として使っているため挙動が変わる）
+  const clamped: ClampedLayer[] = layers
+    .map((l) => ({ layer: l, start: Math.max(0, l.start), end: Math.min(l.end, content.length) }))
+    .filter((c) => c.start < c.end);
+  if (clamped.length === 0) return [{ text: content, layer: null, start: 0, end: content.length }];
 
-  for (const layer of sorted) {
-    const start = Math.max(layer.start, cursor);
-    if (start >= layer.end) continue; // 既に前のレイヤーに消費された区間（重なりはMVPでは先勝ち）
-    const end = Math.min(layer.end, content.length);
-    if (start >= end) continue; // 本文の範囲外にはみ出したレイヤー（クランプ後に空になる）
-    if (start > cursor) segments.push({ text: content.slice(cursor, start), layer: null, start: cursor, end: start });
-    segments.push({ text: content.slice(start, end), layer, start, end });
-    cursor = end;
-  }
-  if (cursor < content.length) {
-    segments.push({ text: content.slice(cursor), layer: null, start: cursor, end: content.length });
+  // すべての境界（開始・終了）で本文を切り分け、各区間の代表レイヤーを決める。
+  // 「開始位置順に先勝ち」だと、外側のレイヤーが常に先に始まるため**内側が必ず落ちる**。
+  // 実データで4件、長い引用の中の語に引いたマーカーが画面から消えていた（2026-07-31）
+  const boundaries = [...new Set([0, content.length, ...clamped.flatMap((c) => [c.start, c.end])])]
+    .filter((b) => b >= 0 && b <= content.length)
+    .sort((a, b) => a - b);
+
+  const segments: TextSegment[] = [];
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    const start = boundaries[i];
+    const end = boundaries[i + 1];
+    if (start >= end) continue;
+    let best: ClampedLayer | null = null;
+    for (const c of clamped) {
+      if (c.start > start || c.end < end) continue; // この区間を覆っていない
+      if (best === null || isNarrower(c, best)) best = c;
+    }
+    const winner = best?.layer ?? null;
+    // 同じレイヤー（nullを含む）が続くなら1つのセグメントにまとめる。
+    // 境界で機械的に切ると、同じ色のセグメントが不必要に分割されるため
+    const prev = segments[segments.length - 1];
+    if (prev && prev.layer === winner) {
+      prev.end = end;
+      prev.text = content.slice(prev.start, end);
+    } else {
+      segments.push({ text: content.slice(start, end), layer: winner, start, end });
+    }
   }
 
   // 開発時のみ自己検査する（本番ビルドでは__DEV__がfalseになり一切実行されない）

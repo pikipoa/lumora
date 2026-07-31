@@ -33,12 +33,78 @@ describe('computeSegments', () => {
     ]);
   });
 
-  it('重なるレイヤーは開始位置が早い方を優先する', () => {
+  // status: overruled（2026-07-31）
+  //
+  // 【当時の判断】重なりはMVPでは「開始位置が早い方が先勝ち」で解決していた。
+  // 【覆った理由】この規則では、外側のマーカーが常に先に始まるため**入れ子の内側が必ず
+  //   画面から消える**。実データで4件（長い引用の中の特定語に色を引いたもの）が
+  //   不可視になっていた。詳細は CHANGELOG.md 2026-07-31。
+  // 【新しい判断】各文字位置では、その位置を含むマーカーのうち**最小区間**が勝つ
+  //   （DESIGN.md「マーカーの重なり — 表示優先順位」）。覆す判例は下の
+  //   「入れ子のマーカーは内側が…」以降。
+  //
+  // CLAUDE.md 2-7 に従い、**期待結果は書き換えず** skip で残す。実装の都合で判例を
+  // 書き換えると「なぜ当時そう決まったか」が失われ、同じ事故を繰り返す。
+  it.skip('[overruled] 重なるレイヤーは開始位置が早い方を優先する', () => {
     const l1: MarkerLayer = { id: 'm1', start: 0, end: 8, kind: 'confirmed', color: 'red' };
     const l2: MarkerLayer = { id: 'm2', start: 5, end: 11, kind: 'proposed', color: null };
     const segments = computeSegments('hello world', [l1, l2]);
     expect(segments[0]).toEqual({ text: 'hello wo', layer: l1, start: 0, end: 8 });
     expect(segments[1]).toEqual({ text: 'rld', layer: l2, start: 8, end: 11 });
+  });
+
+  it('重なるレイヤーは最小区間が優先される（上のoverruledを覆す判例）', () => {
+    const l1: MarkerLayer = { id: 'm1', start: 0, end: 8, kind: 'confirmed', color: 'red' };
+    const l2: MarkerLayer = { id: 'm2', start: 5, end: 11, kind: 'proposed', color: null };
+    // l1は幅8、l2は幅6。重なる 5-8 では狭いl2が勝つ
+    expect(computeSegments('hello world', [l1, l2])).toEqual([
+      { text: 'hello', layer: l1, start: 0, end: 5 },
+      { text: ' world', layer: l2, start: 5, end: 11 },
+    ]);
+  });
+
+  // 実際に起きた事件（2026-07-31）：長い引用の中の特定語に引いたマーカーが画面から
+  // 消えていた。実データの de75feb0（705-1227・ピンク）と 65ed6796（1106-1110・緑）が該当
+  it('入れ子のマーカーは内側も表示される（外側は内側の左右に残る）', () => {
+    const outer: MarkerLayer = { id: 'outer', start: 0, end: 11, kind: 'confirmed', color: 'pink' };
+    const inner: MarkerLayer = { id: 'inner', start: 6, end: 11, kind: 'confirmed', color: 'green' };
+    expect(computeSegments('hello world', [outer, inner])).toEqual([
+      { text: 'hello ', layer: outer, start: 0, end: 6 },
+      { text: 'world', layer: inner, start: 6, end: 11 },
+    ]);
+  });
+
+  it('入れ子が本文の中央にある場合、外側が内側の両側に残る', () => {
+    const outer: MarkerLayer = { id: 'outer', start: 0, end: 11, kind: 'confirmed', color: 'pink' };
+    const inner: MarkerLayer = { id: 'inner', start: 5, end: 6, kind: 'confirmed', color: 'green' };
+    expect(computeSegments('hello world', [outer, inner])).toEqual([
+      { text: 'hello', layer: outer, start: 0, end: 5 },
+      { text: ' ', layer: inner, start: 5, end: 6 },
+      { text: 'world', layer: outer, start: 6, end: 11 },
+    ]);
+  });
+
+  it('3重の入れ子でも各層が表示される（色が細かく切り替わるのは仕様）', () => {
+    const a: MarkerLayer = { id: 'a', start: 0, end: 11, kind: 'confirmed', color: 'pink' };
+    const b: MarkerLayer = { id: 'b', start: 2, end: 9, kind: 'confirmed', color: 'blue' };
+    const c: MarkerLayer = { id: 'c', start: 4, end: 6, kind: 'confirmed', color: 'green' };
+    expect(computeSegments('hello world', [a, b, c])).toEqual([
+      { text: 'he', layer: a, start: 0, end: 2 },
+      { text: 'll', layer: b, start: 2, end: 4 },
+      { text: 'o ', layer: c, start: 4, end: 6 },
+      { text: 'wor', layer: b, start: 6, end: 9 },
+      { text: 'ld', layer: a, start: 9, end: 11 },
+    ]);
+  });
+
+  it('完全に同じ範囲の重複は、入力順が変わっても常に同じ1件が選ばれる（決定性）', () => {
+    const x: MarkerLayer = { id: 'aaa', start: 0, end: 5, kind: 'confirmed', color: 'red' };
+    const y: MarkerLayer = { id: 'bbb', start: 0, end: 5, kind: 'confirmed', color: 'blue' };
+    // 幅が同じならidで一意に決まる。入力順に依存しない
+    const forward = computeSegments('hello world', [x, y]);
+    const reverse = computeSegments('hello world', [y, x]);
+    expect(forward).toEqual(reverse);
+    expect(forward[0].layer).toBe(x);
   });
 
   it('文末までのレイヤーでも末尾に空セグメントを作らない', () => {

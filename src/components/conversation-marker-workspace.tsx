@@ -165,6 +165,12 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     sheetOpenRef.current = pendingSelection !== null || realmPicker !== null;
   }, [pendingSelection, realmPicker]);
 
+  /** 選択確定時に「同じ範囲の既存マーカー」を探すための橋渡し（2026-07-31）。
+   *  selectionchangeのハンドラはuseEffect内のクロージャなので、最新のlayersByMessageと
+   *  startEditingMarkerを直接は見られない。refで最新版を渡す */
+  const layersRef = useRef<Record<string, MarkerLayer[]>>({});
+  const startEditingMarkerRef = useRef<((messageId: string, layer: MarkerLayer) => void) | null>(null);
+
   // Realmチップの並び順（あとで→直近使用順）用。ユーザーIDが分かってから読み込む
   const [userId, setUserId] = useState<string | null>(null);
   const [recentRealmIds, setRecentRealmIds] = useState<string[]>([]);
@@ -317,13 +323,26 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       const candidate = candidateRef.current;
       candidateRef.current = null;
       if (!candidate) return;
+      // 引用はシート内に再掲するので、本文側の選択はここで解除してよい
+      window.getSelection()?.removeAllRanges();
+
+      // 既存マーカーとまったく同じ範囲を選び直した場合は、2件目を作らずに
+      // **そのマーカーの編集として開く**（2026-07-31、DESIGN.md「マーカーの重なり」）。
+      // 同じ範囲を選び直す行為は、ほぼ確実に「この場所のマーカーを変えたい」という意思であり、
+      // 2件目を作ると片方が表示規則で隠れて「編集も削除も効かない」状態になる
+      const existing = (layersRef.current[candidate.messageId] ?? []).find(
+        (l) => l.start === candidate.start && l.end === candidate.end,
+      );
+      if (existing && startEditingMarkerRef.current) {
+        startEditingMarkerRef.current(candidate.messageId, existing);
+        return;
+      }
+
       setPendingSelection(candidate);
       setEditingMarkerId(null);
       setSheetColor(null);
       setQuoteExpanded(false);
       setSheetErrorCode(null);
-      // 引用はシート内に再掲するので、本文側の選択はここで解除してよい
-      window.getSelection()?.removeAllRanges();
     };
 
     function onSelectionChange() {
@@ -723,6 +742,12 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
     return map;
   }, [markers, messages]);
+
+  // selectionchangeのハンドラから最新の値を参照できるようにする（上のref宣言の説明を参照）
+  useEffect(() => {
+    layersRef.current = layersByMessage;
+    startEditingMarkerRef.current = startEditingMarker;
+  });
 
   const editingMarker = markers.find((m) => m.id === editingMarkerId) ?? null;
 

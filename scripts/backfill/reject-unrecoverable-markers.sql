@@ -69,8 +69,10 @@ hist as (
   -- user_id は auth.uid() の既定値に頼らず markers から引き継ぐ。
   -- SQL Editor（service role）では auth.uid() が null になり not null 制約に違反するため。
   -- color は null（スキーマのコメントどおり、却下の記録時は色を持たない）
+  -- enumへの型付けを明示する。null / 'rejected' を素で書くと、INSERT ... SELECT では
+  -- 型推論に失敗する環境がある（marker_color / review_status はどちらもenum）
   insert into marker_history (user_id, marker_id, color, status)
-  select user_id, id, null, 'rejected' from target
+  select user_id, id, null::marker_color, 'rejected'::review_status from target
   returning marker_id
 )
 update markers set status = 'rejected'

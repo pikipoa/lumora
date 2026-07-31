@@ -191,7 +191,13 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         .select(
           'id, message_id, quoted_text, color, role_tag, project_id, status, start_offset, end_offset, context_before, context_after',
         )
-        .eq('conversation_id', conversationId),
+        .eq('conversation_id', conversationId)
+        // 並び順を固定する（2026-07-31）。computeSegmentsは区間の重なりを先勝ちで解決
+        // するため、取得順が変わると「どちらのマーカーが描画されるか」がロードごとに
+        // 変わりうる。作成順＋idのタイブレーカーで一意に決まるようにする
+        // （search-spec.md 3-6と同じ考え方：同値キーには必ず一意なタイブレーカーを付ける）
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true }),
       supabase.from('projects').select('id, name').order('created_at', { ascending: false }),
     ]);
 

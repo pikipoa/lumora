@@ -263,7 +263,10 @@ Explorerが「340件」と表示し、検索が338件を返す。マッチング
 Lumoraは「AIが検索条件を勝手に変えない」を看板にしている製品であり、この種のズレは
 他のどのアプリより致命的に効く。
 
-**回避条件**：Explorerは独自のマッチング実装を持たない。Searchと同一のFilter primitiveを呼ぶ。
+**回避条件**：Search側に述語が存在する項目（期間・source・採掘状態）については、Explorerは
+独自のマッチング実装を持たず、Searchと同一のFilter primitiveを呼ぶ。
+案A採用によりRealm/Wingのように述語がSearch側から消えた項目については、比較対象がSearchから
+無くなるため、この回避条件は適用対象外になる。代わりにD9が同型の危険を扱う。
 
 ### 反証できなかった点 — 分離の理由は「Filter」ではなく「集計」
 
@@ -292,8 +295,11 @@ Lumoraは「AIが検索条件を勝手に変えない」を看板にしている
 ```
 
 - **D1**：Scopeはシリアライズ可能な値として定義し、`resolved_query`に必ず含める
-- **D2**：ExplorerとSearchはScopeの上の兄弟であり、積み上げにしない
-- **D3**：Filter primitiveの実装は1つ。Explorerは自前のマッチングを持たない
+- **D2**：ExplorerとSearchはScopeの上の兄弟であり、積み上げにしない。何を共有し何を共有しない
+  かはD3・D9で定める
+- **D3**：Search側に述語が存在する項目（期間・source・採掘状態）については、Filter primitiveの
+  実装は1つ。Explorerはこれを共有し、自前のマッチングを持たない。Realm/Wingは案A採用により
+  Search述語から外れたためD3の対象外（→D9）
 - **D4**：Search EngineのFilter工程は残す。**Scope未指定でも検索は成立しなければならない**
 - **D5**：Explorerの固有責務は「集計・ナビゲーション・クエリなしの閲覧」であり「絞り込み」ではない
 - **D6**：`Realm → Tag → Marker → 期間 → 検索`というファネル順序は採らない。Explorerは
@@ -301,6 +307,12 @@ Lumoraは「AIが検索条件を勝手に変えない」を看板にしている
 - **D7**：Exploration Engineという語は製品概念として使い、層境界名としては使わない
 - **D8**（付録Xの帰結）：**ScopeにRealm / Wing / Tagは載らない。** Explorerは
   Realmごとの件数を集計してよい（ナビゲーション）が、その値が検索条件へ渡ることはない
+- **D9**：同じ集合について、件数を出す場所と一覧を出す場所が2箇所以上ある場合、実装は1つで
+  なければならない——これが反証3の本体であり、Explorer対Searchという特定の対に限定された規則
+  ではない。案A採用によりExplorer対Searchの対ではこの危険が構造的に消滅したが、
+  Explorer対Realmページ（Wingがあれば同様にExplorer対Wingページ）の対に移動しただけで、
+  解消されていない。**Explorerが表示するRealm/Wingごとの件数と、Realmページ/Wingページが実際に
+  表示する一覧は、単一の実装を共有しなければならない。**
 
 ---
 
@@ -357,7 +369,7 @@ Index Builder内部でAIが**生成**（要約・タグ付け・重要度判定�
 | **3.0** | **状態遷移図（1枚）— ここから書く** | Zoekt, Bleve, Meilisearch |
 | 3.1 | 索引レーンと検索レーン（契約はAtomic swapのみ） | Zoekt, Typesense |
 | 3.2 | Scopeの定義（値であってモードでない） | ES index/alias |
-| 3.3 | ExplorerとSearchの関係（D1〜D8） | 本資料5章 |
+| 3.3 | ExplorerとSearchの関係（D1〜D9） | 本資料5章 |
 | 4.1 | Query Input（何も加工しない層） | VS Code |
 | 4.2 | Query Parser（リテラル既定・暗黙AND・prefix型分け） | Xapian, notmuch, PG `websearch_to_tsquery` |
 | 4.3 | Query Normalizer（**許される正規化の限定列挙**） | 反面教師: typo tolerance, `--smart-case` |
@@ -389,7 +401,7 @@ Index Builder内部でAIが**生成**（要約・タグ付け・重要度判定�
 ### 執筆順序
 
 1. **3.0（状態遷移図）** — ここから書く。図が固まらないうちに本文を書くと、章が増えるたびに責務がずれる
-2. **3.2〜3.3（ScopeとExplorerの境界）** — D1〜D8を確定させる。ここが未決だと4.4が書けない
+2. **3.2〜3.3（ScopeとExplorerの境界）** — D1〜D9を確定させる。ここが未決だと4.4が書けない
 3. **4.4（Filter）** — 最も重い章。ここが薄いと、憲法は守れても検索は使いにくくなる
 4. 残り
 

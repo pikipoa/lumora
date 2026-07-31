@@ -33,3 +33,19 @@
   演出自体の存在意義が失われる。代わりに、名前はそのまま維持し各名称に象形的な
   ワンポイントアイコン（Realm=球体/Wing=三角/Chronicle=四角）を追加してタイポグラフィを
   補強する方針を採用した。詳細：VISION.md 8章。
+
+- Evidence OSの憲法を「8原則」（Knowledge First / Human Decides / Immutable Origin /
+  Layered Knowledge / Composable Knowledge / Traceable Knowledge / AI Augments, Never Owns /
+  Stable Identity）へ**置き換える**案。
+  却下理由：8原則は7憲法の改良版ではなく別の軸（7＝AIの**振る舞い**、8＝知識の**構造**）
+  だったため、置き換えると軸が1本消える。特にEvidence First（Beaconの実装を縛る唯一の
+  条項）とUnknown is Sacred（Compassの存在理由）は構造の原則では代替できない。
+  代わりに、憲法を11-1 Behavior Constitution（7条・維持）と11-2 Architecture Principles
+  （新規）の2層にし、8原則のうち新規性のあるLayered KnowledgeとStable Identityだけを
+  後者へ追加した。詳細：`docs/EVIDENCE-OS.md` 付録D。
+
+- 上記のうち **Composable Knowledge**（`Arca → Wing → Realm`）を原則として採用する案。
+  却下理由：現在のER図を条文化してしまう。実際の構造はこの連鎖ではなく、MarkerはRealmへ
+  直接割り当てられ（`markers.project_id`）Wingは多対多の**任意**である（Wingを経由しない
+  Arcaが正常に存在する）。仮に現構造を正確に書き写しても、スキーマが変わった時に壊れるのが
+  実装ではなく憲法の方になる。`docs/future/mission-architecture.md`を隔離したのと同じ判断。

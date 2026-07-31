@@ -20,17 +20,45 @@
 
 ---
 
+## 前文
+
+> **Lumoraは知識を保存するシステムではない。知識が時間とともに意味・構造・文脈を獲得し、
+> そのライフサイクルを通じて未来の思考を支え続けられる環境を提供するシステムである。
+> AIはその過程を支援する交換可能なエンジンであり、知識そのものがプロダクトの中心である。**
+
+この前文の主語は最後まで**知識**である。AIは支援するエンジン、人間は価値を決める主体、
+Lumoraはその両者の間で知識が育ち続けられる**環境**を提供する。
+
+以降の憲法（11章）は、すべてこの前文から導かれている。
+
+---
+
 ## 0. この文書の位置
 
 ```
-EVIDENCE-OS.md        なぜ作るか（思想・判断基準）
-      ↓
-VISION.md             何を作るか（プロダクト哲学・スコープ）
-      ↓
-PRINCIPLES.md         どう判断するか（設計原則5箇条）
-      ↓
-DESIGN.md / data-model.md / ...   どう作るか
+Tier 1  Philosophy               前文・定義（この文書の冒頭、VISION.md 1章）
+          ↓                      「なぜ作るか」
+Tier 2  Behavior Constitution    11-1. 振る舞いの憲法（7条）
+          ↓                      AI・Beacon・Compassが**どう振る舞うか**を拘束する
+Tier 3  Architecture Principles  11-2. 構造の原則
+          ↓                      知識が**どう構造化されるか**を拘束する
+Tier 4  Implementation           data-model.md / DESIGN.md / search-spec.md / ER図
+                                 「どう作るか」。**変更可能**
 ```
+
+`PRINCIPLES.md`（5原則）はTier 2とTier 3の内容を、日々の実装判断で使える形に落とした
+**窓口**として機能する。憲法を読まなくても実装できるが、迷ったら憲法へ戻る、という関係。
+
+**Tier 2とTier 3を混ぜないこと（重要）。** 両者は拘束する対象が違う。
+
+| | 拘束するもの | 例 |
+|---|---|---|
+| Behavior | 実行時の振る舞い | Evidence First＝「生成の前に必ず検索を通す」 |
+| Architecture | 知識の構造 | Layered Knowledge＝「原本と派生を分離する」 |
+
+**Tier 4をTier 2・3へ持ち上げないこと（重要）。** 憲法には何十年も変わらないものを書く。
+ER図は半年後に変わる。現在のスキーマを条文にすると、スキーマが変わった時に憲法の方が壊れる
+（この理由で採用しなかった原則がある。付録E参照）。
 
 Lumoraでは、新しい機能を追加するときも、新しいAIを導入するときも、
 まず一つの問いを立てる。
@@ -199,7 +227,14 @@ Evidence Mapは知識の量ではない。**思考の地図**である。
 
 ---
 
-## 11. 7つの憲法
+## 11. 憲法
+
+憲法は2層ある。**振る舞い**を拘束するものと、**構造**を拘束するものは別物であり、
+混ぜない（0章のTier表を参照）。
+
+### 11-1. Behavior Constitution（振る舞いの憲法・7条）
+
+AI・Beacon・Compassが実行時にどう振る舞うかを拘束する。
 
 1. **Memory Before Intelligence** — 知能より先に、記憶を守る
 2. **Evidence First** — 証拠のない断定をしない
@@ -208,6 +243,53 @@ Evidence Mapは知識の量ではない。**思考の地図**である。
 5. **Every Answer Has Roots** — すべての回答は証拠へ辿れる
 6. **Time Is Evidence** — 思考の変化そのものが知識になる
 7. **Silence Is a Feature** — 静けさもUXである
+
+このうち **2（Evidence First）と 4（Unknown is Sacred）は、構造の原則では代替できない。**
+2は「生成の前に必ずEvidenceへ戻る」という順序そのものであり、これが無いと
+`AI → それっぽい回答` に戻る。4はCompassの存在理由であり、AIが「分かりません」ではなく
+「Evidenceがありません」と言えることを支えている。データモデルをどう変えても、
+この2条は別途書かれていなければ失われる。
+
+### 11-2. Architecture Principles（構造の原則）
+
+知識がどう構造化されるかを拘束する。**現在のスキーマではなく、スキーマが満たすべき性質**を
+書く（現在のER図を条文にしない。付録E参照）。
+
+#### A-1. Layered Knowledge — 原本と派生を分離する
+
+```
+Derived   要約 / Wing / Tag / Beacon / 翻訳 / 編集後の本文
+   ↑
+Evidence  原本（不変）
+```
+
+**派生を作る操作は、原本を書き換えてはならない。** 原本を保ったまま、派生だけを何度でも
+破棄・再生成できること。派生がどれだけ増えても、原本は1つのまま増殖しない。
+
+実装での実体（Tier 4）：`quoted_text`（不変の原本）と`edited_text`（派生）の分離、
+Tag/Wingが参照であって本文の複製ではないこと、`MarkerHistory`が追記専用であること。
+いずれも`data-model.md`に既にある決定だが、**個別の設計判断ではなく原則である**と
+位置づけ直したのが今回（2026-07-28）。
+
+#### A-2. Stable Identity — 知識の同一性は維持する（**未確定**）
+
+分類され、再構成され、関連付けられ、翻訳され、活用されても、**それは同じ知識である**。
+
+**この条項はまだ実装を拘束できていない。** 思想としては正しいが、条文として機能するには
+「どの操作がIDを保持しなければならず、どの操作が新しいIDを作るのか」が決まっている必要が
+ある。決まっていないものを憲法に置くと、読んだ人が各自の解釈で実装する。
+
+現時点で言えること：
+
+- **Markerの同一性は既に保たれている。** 色の変更・範囲の調整・Wingの移動・Realmの移動・
+  `edited_text`の編集・`rejected`への変更は、いずれもUPDATEか中間テーブルの行であって、
+  新しい`markers.id`を作らない
+- **Chronicleの同一性は保証されていない。** 同じエクスポートを再インポートすると、
+  `conversations`に新しい行（別のuuid）が増える。`importService.ts`に重複排除
+  （`upsert`／`onConflict`）は無い。**これは仮定ではなく現在の実装である**
+
+**先に決めるべきは名前ではなく規則である。** `Arca ID` / `Evidence ID` / `Knowledge ID`
+のどれを名乗るかは、規則が決まってから付ける（付録B「まだ作っていないものには名前を付けない」）。
 
 ---
 
@@ -345,9 +427,53 @@ Evidence OS／Evidence First／Evidence Map／Every Answer Has Roots で使う�
 「無い」を扱っているのは`resolveMarkerPosition`の`missing`/`text_only`
 （`src/lib/markerLayout.ts`）と、バックフィルのTier 3（`scripts/backfill/README.md`）だけである。
 
-## D. 次の段階
+## D. 8原則の提案レビュー（2026-07-28）
+
+「憲法を8原則にする」という提案（Knowledge First / Human Decides / Immutable Origin /
+Layered Knowledge / Composable Knowledge / Traceable Knowledge / AI Augments, Never Owns /
+Stable Identity）を検討し、**置き換えではなく追加**という結論に至った経緯。
+
+### 結論に至った観察
+
+**8原則は7憲法の改良版ではなく、別の軸だった。** 7憲法はAIが**どう振る舞うか**、
+8原則は知識が**どう構造化されるか**を語っている。競合していないため、置き換えると軸が1本消える。
+
+置き換えた場合に失われる条項：**Evidence First**（Beaconの実装を縛る唯一の条項）、
+**Unknown is Sacred**（Compassの存在理由）、**Time Is Evidence**、**Silence Is a Feature**。
+8原則のどれもこの4つを代替しない。
+
+### 採用しなかったもの
+
+| 原則 | 理由 |
+|---|---|
+| Knowledge First | 前文へ吸収。「AIは交換可能なエンジン」は前文が述べている |
+| Human Decides | `PRINCIPLES.md` Principle 1と同一 |
+| AI Augments, Never Owns | 同上（Human Decidesとも重複。8つのうち3つが「AIは主役ではない」を別方向から述べていた） |
+| Immutable Origin | A-1 Layered Knowledgeに含まれる（原本が不変だから派生を分離できる。表裏の関係） |
+| Traceable Knowledge | `PRINCIPLES.md` Principle 4「根拠へ戻れる」と同一。またA-1の帰結でもある |
+| **Composable Knowledge** | **採用しない。現在のER図を条文化してしまうため**（下記） |
+
+### Composable Knowledgeを採用しない理由
+
+提案された連鎖は `Arca → Wing → Realm` だが、**現在の実装はこの形ではない**。
+MarkerはRealmへ直接割り当てられ（`markers.project_id`）、Wingは多対多の**任意**である
+（`data-model.md`：「ArcaでのRealm割当直後にはWingは未設定」）。Wingを経由しないArcaが
+正常に存在する。
+
+仮に現在の構造を正確に書き写したとしても、それは**憲法にER図を書くこと**になる。
+ER図は半年後に変わる。変わった時に壊れるのが実装ではなく憲法の方になる、という逆転が起きる。
+`docs/future/mission-architecture.md`を隔離したのと同じ判断。
+
+### この整理から得た運用ルール
+
+**原則を評価する時は「良い原則か」ではなく「それは何を拘束するのか」を問う。**
+拘束対象が実行時の振る舞いならTier 2、知識の構造ならTier 3、現在のスキーマならTier 4（＝憲法に
+書かない）。この問いを通さないと、憲法は「AIの哲学 → 知識哲学 → ER図」へ静かに降りていく。
+
+## E. 次の段階
 
 Beacon / Compass / Evidence View（Evidenceを集約して見せるView）の設計は、
-**Phase2以降**に行う。着手時にこの文書を読み直し、7つの憲法に照らして再評価すること。
+**Phase2以降**に行う。着手時にこの文書を読み直し、11章の憲法（振る舞い7条＋構造の原則）に
+照らして再評価すること。Stable Identity（A-2）の規則も、その時点までに決めておく。
 
 それまでは現在のコードへ持ち込まないこと。

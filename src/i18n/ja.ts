@@ -286,6 +286,28 @@ export const ja = {
     subtitle: 'すでに無意識に使い分けている色に、自分の言葉で意味をつけておけます。未設定のままでも、今まで通り色だけで使えます。',
     descriptionPlaceholder: '補足があれば',
     saved: '保存しました',
+
+    // アカウント削除（2026-07-31・レビュー承認済み）。
+    // 何が消えるかを件数で示す。「本当によろしいですか？」より情報量がある。
+    // エクスポート未実装であることを隠さない（trust-model.md）
+    deleteAccount: {
+      entry: 'アカウントを削除',
+      title: 'アカウントを削除します',
+      countChronicle: 'Chronicle',
+      countArca: 'Arca',
+      countRealm: 'Realm',
+      irreversible: '取り消せません。',
+      noExport: '現在、データのエクスポート機能はありません。削除すると内容を取り出せなくなります。',
+      confirmPrompt: '確認のため、メールアドレスを入力してください',
+      emailPlaceholder: 'メールアドレス',
+      submit: '削除する',
+      cancel: 'キャンセル',
+      deleting: '削除しています…',
+      error: {
+        auth_required: 'サインインを確認してください。',
+        delete_failed: 'すみません。アカウントを削除できませんでした。もう一度お試しください。',
+      },
+    },
   },
 
   celebrations: {

@@ -11,6 +11,7 @@ import { Redirect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
+import { DeleteAccountPanel } from '@/components/delete-account-panel';
 import { HomeLink } from '@/components/home-link';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -127,6 +128,12 @@ export default function SettingsScreen() {
             </ThemedText>
           )}
         </ThemedView>
+
+        {/* アカウント削除（2026-07-31）。設定内で唯一の破壊的操作なので、
+            大きな余白で他と隔離する（色ではなく余白で「別のもの」だと伝える） */}
+        {session?.user && (
+          <DeleteAccountPanel userId={session.user.id} email={session.user.email ?? ''} />
+        )}
       </ScrollView>
     </ThemedView>
   );

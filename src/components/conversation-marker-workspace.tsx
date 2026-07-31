@@ -88,7 +88,16 @@ interface PendingSelection {
  * 同じ識別子を使い回せるため。文言への変換はUI側（`t.conversation.sheetError`）で行う。
  * 原因を推測して1つに決めつけず、実際に通った経路をそのまま名前にしている。
  */
-type SheetErrorCode = 'selection_lost' | 'auth_required' | 'position_mismatch' | 'realm_create_failed';
+type SheetErrorCode =
+  | 'selection_lost'
+  | 'auth_required'
+  | 'position_mismatch'
+  | 'realm_create_failed'
+  // DBへの書き込みが失敗した経路（2026-07-31追加）。それまで結果を確認しておらず、
+  // 失敗しても画面に何も出なかった。空実装のAlertと同じ「静かに失敗する」形だった
+  | 'save_failed'
+  | 'remove_failed'
+  | 'realm_assign_failed';
 
 interface Props {
   conversationId: string;
@@ -508,7 +517,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         before: ctx.before,
         after: ctx.after,
       });
-      await supabase
+      const { error: updateError } = await supabase
         .from('markers')
         .update({
           quoted_text: quotedText,
@@ -520,6 +529,14 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           context_after: ctx.after,
         })
         .eq('id', editingMarkerId);
+      if (updateError) {
+        Sentry.captureMessage('マーカーの更新に失敗', {
+          level: 'warning',
+          extra: { message: updateError.message, code: updateError.code },
+        });
+        setSheetErrorCode('save_failed');
+        return;
+      }
       if (!unchanged) await recordMarkerHistory(editingMarkerId, color, 'confirmed');
       if (existing && !existing.project_id) nextRealmPickerId = editingMarkerId;
     } else {
@@ -555,11 +572,21 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         context_before: ctx.before,
         context_after: ctx.after,
       };
-      const { data: created } = await supabase.from('markers').insert(insertPayload).select('id').single();
-      if (created) {
-        await recordMarkerHistory(created.id, color, 'confirmed');
-        nextRealmPickerId = created.id;
+      const { data: created, error: insertError } = await supabase
+        .from('markers')
+        .insert(insertPayload)
+        .select('id')
+        .single();
+      if (insertError || !created) {
+        Sentry.captureMessage('マーカーの作成に失敗', {
+          level: 'warning',
+          extra: { message: insertError?.message, code: insertError?.code },
+        });
+        setSheetErrorCode('save_failed');
+        return;
       }
+      await recordMarkerHistory(created.id, color, 'confirmed');
+      nextRealmPickerId = created.id;
     }
 
     // 色が決まったらRealm選択ステップへ進む（シートの中身が入れ替わる）。
@@ -578,7 +605,15 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   // マーカーをRealmへ収納する（v2.1：色確定直後 or 既存マーカータップ時）。
   // 割り当てたRealmはローカルの直近使用履歴に記録し、次回以降チップの先頭寄りに出す
   async function assignMarkerToRealm(markerId: string, projectId: string) {
-    await supabase.from('markers').update({ project_id: projectId }).eq('id', markerId);
+    const { error } = await supabase.from('markers').update({ project_id: projectId }).eq('id', markerId);
+    if (error) {
+      Sentry.captureMessage('Realmへの収納に失敗', {
+        level: 'warning',
+        extra: { message: error.message, code: error.code },
+      });
+      setSheetErrorCode('realm_assign_failed');
+      return;
+    }
     if (userId) {
       await markRealmUsed(userId, projectId);
       setRecentRealmIds(await getRecentRealmIds(userId));
@@ -617,7 +652,16 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   async function rejectMarker(markerId: string) {
     const existing = markers.find((m) => m.id === markerId);
     const alreadyRejected = existing?.status === 'rejected';
-    await supabase.from('markers').update({ status: 'rejected' }).eq('id', markerId);
+    const { error } = await supabase.from('markers').update({ status: 'rejected' }).eq('id', markerId);
+    if (error) {
+      // 以前はerrorを見ておらず、失敗しても画面に何も出なかった（2026-07-31修正）
+      Sentry.captureMessage('マーカーを外せなかった', {
+        level: 'warning',
+        extra: { message: error.message, code: error.code, markerId },
+      });
+      setSheetErrorCode('remove_failed');
+      return;
+    }
     if (!alreadyRejected) await recordMarkerHistory(markerId, null, 'rejected');
     closeSheet();
     load();

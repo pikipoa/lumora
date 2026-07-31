@@ -204,6 +204,15 @@ export const ja = {
         message: 'すみません。Realmを作成できませんでした。もう一度お試しください。',
         note: null,
       },
+      save_failed: { message: 'すみません。保存できませんでした。もう一度お試しください。', note: null },
+      remove_failed: {
+        message: 'すみません。マーカーを外せませんでした。もう一度お試しください。',
+        note: null,
+      },
+      realm_assign_failed: {
+        message: 'すみません。Realmへ収納できませんでした。もう一度お試しください。',
+        note: null,
+      },
     },
   },
 

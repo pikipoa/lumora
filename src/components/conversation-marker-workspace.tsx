@@ -20,6 +20,7 @@ import { createPortal } from 'react-dom';
 
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { TAB_BAR_HEIGHT } from '@/components/bottom-tab-bar';
 import { ThemedText } from '@/components/themed-text';
 import {
   computeAutoScrollStep,
@@ -159,24 +160,18 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
    *  一度も画面に出せていなかった。原因が何であれ黙って操作を捨てないための受け皿 */
   const [sheetErrorCode, setSheetErrorCode] = useState<SheetErrorCode | null>(null);
 
-  // 選択中の候補（まだ確定していない）と、確定までの待機タイマー。
+  // 選択中の候補（まだ確定していない）。
   // イベントハンドラ内から最新値を読む必要があるためstateではなくrefで持つ
   const candidateRef = useRef<PendingSelection | null>(null);
-  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** タッチ時に「この範囲にマーカー」バーを出すかどうか（2026-08-02）。
+   *  refと違って再描画が要るのでstateで持つ。中身はrefと同じ候補 */
+  const [touchCandidate, setTouchCandidate] = useState<PendingSelection | null>(null);
   /** 直近の pointerdown が mouse だったか（selectionchange 自体にはポインタ種別が
    *  含まれないため、pointerdown で先に記録しておく）。2026-08-01修正：以前は
    *  pointerType を見ずに selectionchange のたびに900msタイマーを一律でセットしており、
    *  マウスで長文をドラッグ選択中に少し止まる（オートスクロール待ち・持ち直し等）だけで
    *  ボタンを離す前にタイマーが発火し、志半ばで確定してしまっていた */
   const lastPointerWasMouseRef = useRef(false);
-  /** 画面に指が触れているか（2026-08-02追加）。
-   *
-   *  マウスと同じ問題がタッチ側にも残っていた。ハンドルをドラッグ中に手が一瞬止まると
-   *  （オートスクロール待ち・持ち替え等）、指を離す前に900msタイマーが発火して
-   *  志半ばで確定してしまう（実機報告：「2回に1回は途中で色選択になる」）。
-   *  **指が触れている間は確定しない**とし、離してから待機時間を数え始める。
-   *  待機時間そのものは、離した直後にハンドルを掴み直す余地を残すために維持する。 */
-  const touchActiveRef = useRef(false);
   /** シートが開いているか（イベントハンドラから参照するためstateのミラー）。
    *  render中にrefを書き換えるのはReactの規約違反なのでeffectで同期する */
   const sheetOpenRef = useRef(false);
@@ -254,6 +249,9 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setRealmPicker(null);
     setNewRealmName(null);
     setSheetErrorCode(null);
+    // 前の会話で選びかけていた候補を、新しい会話へ持ち越さない
+    candidateRef.current = null;
+    setTouchCandidate(null);
     setLoading(true);
   }, [conversationId]);
 
@@ -312,6 +310,42 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     return () => clearTimeout(timer);
   }, [searchMatch, loading]);
 
+  /**
+   * 保留中の候補を確定して色選択シートを開く。
+   * マウス（pointerup）とタッチ（バーのタップ）の両方から呼ばれるため、
+   * effectの外に置いてrefで橋渡しする（2026-08-02）。
+   */
+  function commitCandidate() {
+    const candidate = candidateRef.current;
+    candidateRef.current = null;
+    setTouchCandidate(null);
+    if (!candidate) return;
+    // 引用はシート内に再掲するので、本文側の選択はここで解除してよい
+    if (Platform.OS === 'web') window.getSelection()?.removeAllRanges();
+
+    // 既存マーカーとまったく同じ範囲を選び直した場合は、2件目を作らずに
+    // **そのマーカーの編集として開く**（2026-07-31、DESIGN.md「マーカーの重なり」）。
+    // 同じ範囲を選び直す行為は、ほぼ確実に「この場所のマーカーを変えたい」という意思であり、
+    // 2件目を作ると片方が表示規則で隠れて「編集も削除も効かない」状態になる
+    const existing = (layersRef.current[candidate.messageId] ?? []).find(
+      (l) => l.start === candidate.start && l.end === candidate.end,
+    );
+    if (existing && startEditingMarkerRef.current) {
+      startEditingMarkerRef.current(candidate.messageId, existing);
+      return;
+    }
+
+    setPendingSelection(candidate);
+    setEditingMarkerId(null);
+    setSheetColor(null);
+    setQuoteExpanded(false);
+    setSheetErrorCode(null);
+  }
+  const commitCandidateRef = useRef(commitCandidate);
+  useEffect(() => {
+    commitCandidateRef.current = commitCandidate;
+  });
+
   // Step6スパイクの結論：ブラウザ標準Selection APIで範囲を読み取る。
   //
   // 【2026-07-28】引用テキストは確定シート内へ再掲するため、確定後は本文側の選択を
@@ -327,49 +361,21 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   // 選択が動かない瞬間があると、ボタンをまだ押したままなのにタイマーが先に発火し、
   // 志半ばで確定してしまっていた（実機報告：「PCはスクロールされるが途中で色選択に
   // なる」）。マウスではこのタイマーを一切使わず、pointerupだけで確定するよう分離した。
-  //   - マウス：pointerupが「選択し終わった」の明確な合図なので、そこで確定
-  //   - タッチ：長押し選択もハンドル操作も selectionchange が連続で出る。最後の変更から
-  //     一定時間動きが無ければ確定する（ハンドルを掴めばタイマーは毎回リセットされる）
+  //
+  // 【2026-08-02・タッチの確定方法を変更】時間による自動確定を**廃止**した。
+  //
+  // 原因：**選択ハンドルのドラッグはブラウザ自身のUI操作であり、touchstart/touchendが
+  // ページへ配信されない。** そのため「指が触れている間は確定しない」というガードが
+  // ハンドル操作中には効かず、ゆっくり操作するほど誤爆した（実機報告：「ゆっくり下に
+  // 進もうと指の動きが少ないと色選択になる」）。
+  //
+  // タッチには「選択し終わった」を示す信号が存在しない。待ち時間を延ばしても、ゆっくり
+  // 操作する人ほど誤爆するため原理的に解決しない。**推測をやめ、ユーザーの明示的な操作で
+  // 確定する**方式へ変えた。選択がある間は画面下部にバーを出し、タップで確定する。
+  //   - マウス：pointerupで確定（信頼できる信号があるため従来どおり）
+  //   - タッチ：「この範囲にマーカー」バーのタップで確定
   useEffect(() => {
     if (Platform.OS !== 'web') return;
-
-    /** タッチで「選択し終わった」とみなすまでの待ち時間。長押し直後にハンドルを掴む余地を残す */
-    const TOUCH_SETTLE_MS = 900;
-
-    const clearTimer = () => {
-      if (commitTimerRef.current != null) {
-        clearTimeout(commitTimerRef.current);
-        commitTimerRef.current = null;
-      }
-    };
-
-    /** 保留中の候補を確定してシートを開く */
-    const commit = () => {
-      clearTimer();
-      const candidate = candidateRef.current;
-      candidateRef.current = null;
-      if (!candidate) return;
-      // 引用はシート内に再掲するので、本文側の選択はここで解除してよい
-      window.getSelection()?.removeAllRanges();
-
-      // 既存マーカーとまったく同じ範囲を選び直した場合は、2件目を作らずに
-      // **そのマーカーの編集として開く**（2026-07-31、DESIGN.md「マーカーの重なり」）。
-      // 同じ範囲を選び直す行為は、ほぼ確実に「この場所のマーカーを変えたい」という意思であり、
-      // 2件目を作ると片方が表示規則で隠れて「編集も削除も効かない」状態になる
-      const existing = (layersRef.current[candidate.messageId] ?? []).find(
-        (l) => l.start === candidate.start && l.end === candidate.end,
-      );
-      if (existing && startEditingMarkerRef.current) {
-        startEditingMarkerRef.current(candidate.messageId, existing);
-        return;
-      }
-
-      setPendingSelection(candidate);
-      setEditingMarkerId(null);
-      setSheetColor(null);
-      setQuoteExpanded(false);
-      setSheetErrorCode(null);
-    };
 
     function onSelectionChange() {
       // シートを開いている間は本文の選択を追わない（シート内テキストの選択等に反応しない）
@@ -377,9 +383,9 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-        // 選択が解除された＝作りかけの候補も捨てる
+        // 選択が解除された＝作りかけの候補も捨てる。バーも下げる
         candidateRef.current = null;
-        clearTimer();
+        setTouchCandidate(null);
         return;
       }
       const domRange = sel.getRangeAt(0);
@@ -414,20 +420,13 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       const { start, end, text } = rangeToOffsets(messageEl, domRange);
       if (!text) return;
 
-      // 候補として保持する。確定タイミングはポインタ種別で分ける
-      candidateRef.current = { messageId, start, end, text };
+      // 候補として保持する。ここでは確定しない
+      const candidate = { messageId, start, end, text };
+      candidateRef.current = candidate;
 
-      if (lastPointerWasMouseRef.current) {
-        // マウスは「離した＝選択し終わった」が明確。ここではタイマーをセットしない。
-        // 確定は下のonPointerUpだけに任せる（長文選択中の一瞬の停止で誤確定しないため）
-        clearTimer();
-        return;
-      }
-      // タッチ／ペン：**指が触れている間は確定しない**。ドラッグ中に手が止まっただけで
-      // 確定してしまうのを防ぐ（2026-08-02修正）。離した後の待機はonTouchEndで始める
-      clearTimer();
-      if (touchActiveRef.current) return;
-      commitTimerRef.current = setTimeout(commit, TOUCH_SETTLE_MS);
+      // マウスは pointerup で確定するのでバーは出さない。
+      // タッチ／ペンは「この範囲にマーカー」バーを出し、タップされるまで待つ
+      if (!lastPointerWasMouseRef.current) setTouchCandidate(candidate);
     }
 
     // selectionchange自体にはポインタ種別が含まれないため、pointerdownで先に記録しておく
@@ -435,42 +434,20 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       lastPointerWasMouseRef.current = e.pointerType === 'mouse';
     }
 
-    function onTouchStart() {
-      touchActiveRef.current = true;
-      // 掴み直しの最中に前回の待機時間が満了して確定するのを防ぐ
-      clearTimer();
-    }
-
-    // 指を離してから待機時間を数え始める。ここで初めて「選択し終わったかもしれない」状態になる
-    function onTouchEnd() {
-      touchActiveRef.current = false;
-      if (sheetOpenRef.current) return;
-      clearTimer();
-      commitTimerRef.current = setTimeout(commit, TOUCH_SETTLE_MS);
-    }
-
-    // マウスは「離した＝選択し終わった」が明確。待たずに確定する。
-    // タッチ／ペンは onTouchEnd 側で待機時間を開始する
+    // マウスは「離した＝選択し終わった」が明確なので、そのまま確定する
     function onPointerUp(e: PointerEvent) {
       if (e.pointerType !== 'mouse' || sheetOpenRef.current) return;
       // このpointerupの後に最後のselectionchangeが来ることがあるため、1フレーム待つ
-      setTimeout(commit, 0);
+      setTimeout(() => commitCandidateRef.current(), 0);
     }
 
     document.addEventListener('selectionchange', onSelectionChange);
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('pointerup', onPointerUp);
-    document.addEventListener('touchstart', onTouchStart);
-    document.addEventListener('touchend', onTouchEnd);
-    document.addEventListener('touchcancel', onTouchEnd);
     return () => {
       document.removeEventListener('selectionchange', onSelectionChange);
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('pointerup', onPointerUp);
-      document.removeEventListener('touchstart', onTouchStart);
-      document.removeEventListener('touchend', onTouchEnd);
-      document.removeEventListener('touchcancel', onTouchEnd);
-      clearTimer();
     };
   }, [conversationId, instanceId]);
 
@@ -597,6 +574,9 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setRealmPicker(null);
     setNewRealmName(null);
     setSheetErrorCode(null);
+    // 保留中の候補とバーも片付ける（選択を解除するので、残しておく意味がない）
+    candidateRef.current = null;
+    setTouchCandidate(null);
   }
 
   /**
@@ -1096,6 +1076,31 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       ? createPortal(sheet, document.body)
       : sheet;
 
+  // タッチでの確定バー（2026-08-02）。選択がある間だけ出し、タップで色選択へ進む。
+  // 時間による自動確定を廃止したため、これが唯一の確定手段になる（マウスはpointerup）。
+  // シートを開いている間は出さない（確定済みなので用が無い）。
+  // シートと同じくbody直下へポータルする——本文はScrollViewの中にあり、その中に置くと
+  // スクロールに合わせて動いてしまうため（sheetOverlayの説明も参照）
+  const touchBar =
+    touchCandidate && !pendingSelection && !realmPicker ? (
+      <View style={styles.markBar} testID="mark-selection-bar">
+        <Pressable
+          onPress={() => commitCandidateRef.current()}
+          style={[styles.markBarButton, { backgroundColor: theme.text }]}
+          testID="mark-selection-button"
+        >
+          <ThemedText style={[styles.markBarLabel, { color: theme.background }]}>
+            {t.conversation.markSelection}
+          </ThemedText>
+        </Pressable>
+      </View>
+    ) : null;
+
+  const touchBarPortal =
+    touchBar && Platform.OS === 'web' && typeof document !== 'undefined'
+      ? createPortal(touchBar, document.body)
+      : touchBar;
+
   return (
     <>
       <ThemedText type="small" themeColor="textSecondary">
@@ -1195,6 +1200,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         })}
       </ThemedView>
 
+      {touchBarPortal}
       {sheetPortal}
     </>
   );
@@ -1218,6 +1224,26 @@ const styles = StyleSheet.create({
   // 並ぶため実際には順序だけで最前面になるが、将来body直下に別のオーバーレイが
   // 増えた時の比較用に明示しておく（下部タブバーのzIndex:40とは別コンテキスト）
   sheetOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 } as object,
+
+  // ── タッチでの確定バー（2026-08-02）─────────────────────────────
+  // 下部タブバー（高さ72・zIndex:40）の上に重ねる。シート（zIndex:100）よりは下。
+  // userSelect:'none' は必須——このバー自体が選択に巻き込まれると、選択がスコープ外へ
+  // 出て候補が壊れる（ヘッダー・タブバーで実際に起きた症状。bottom-tab-bar.tsx参照）
+  markBar: {
+    position: 'fixed',
+    left: 0,
+    right: 0,
+    bottom: TAB_BAR_HEIGHT + Spacing.three,
+    alignItems: 'center',
+    zIndex: 90,
+    userSelect: 'none',
+  } as object,
+  markBarButton: {
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.five,
+    borderRadius: 999,
+  },
+  markBarLabel: { fontWeight: '600' },
   /** スクリム：黒の半透明。ライト/ダークどちらでも本文を沈める */
   sheetScrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000000A6' } as object,
   sheetPanel: {

@@ -158,6 +158,12 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   // イベントハンドラ内から最新値を読む必要があるためstateではなくrefで持つ
   const candidateRef = useRef<PendingSelection | null>(null);
   const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 直近の pointerdown が mouse だったか（selectionchange 自体にはポインタ種別が
+   *  含まれないため、pointerdown で先に記録しておく）。2026-08-01修正：以前は
+   *  pointerType を見ずに selectionchange のたびに900msタイマーを一律でセットしており、
+   *  マウスで長文をドラッグ選択中に少し止まる（オートスクロール待ち・持ち直し等）だけで
+   *  ボタンを離す前にタイマーが発火し、志半ばで確定してしまっていた */
+  const lastPointerWasMouseRef = useRef(false);
   /** シートが開いているか（イベントハンドラから参照するためstateのミラー）。
    *  render中にrefを書き換えるのはReactの規約違反なのでeffectで同期する */
   const sheetOpenRef = useRef(false);
@@ -301,6 +307,13 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   // ただし**選択が終わってから**確定すること。selectionchangeはドラッグ中に何度も
   // 発火するため、最初の発火で確定して選択を解除すると、1文字捉えた時点でシートが開き
   // 範囲を伸ばせなくなる（2026-07-28に実際に作り込んだ不具合）。
+  //
+  // 【2026-08-01修正】上のコメントは「マウスはpointerupで確定する」と書いていたが、
+  // 実装はselectionchangeのたびにポインタ種別を見ずに900msタイマーを一律でセットして
+  // いた。長文をマウスでドラッグ選択中、オートスクロール待ちや持ち直しで900ms以上
+  // 選択が動かない瞬間があると、ボタンをまだ押したままなのにタイマーが先に発火し、
+  // 志半ばで確定してしまっていた（実機報告：「PCはスクロールされるが途中で色選択に
+  // なる」）。マウスではこのタイマーを一切使わず、pointerupだけで確定するよう分離した。
   //   - マウス：pointerupが「選択し終わった」の明確な合図なので、そこで確定
   //   - タッチ：長押し選択もハンドル操作も selectionchange が連続で出る。最後の変更から
   //     一定時間動きが無ければ確定する（ハンドルを掴めばタイマーは毎回リセットされる）
@@ -388,10 +401,23 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       const { start, end, text } = rangeToOffsets(messageEl, domRange);
       if (!text) return;
 
-      // ここでは確定しない。候補として保持し、選択が落ち着いてから確定する
+      // 候補として保持する。確定タイミングはポインタ種別で分ける
       candidateRef.current = { messageId, start, end, text };
+
+      if (lastPointerWasMouseRef.current) {
+        // マウスは「離した＝選択し終わった」が明確。ここではタイマーをセットしない。
+        // 確定は下のonPointerUpだけに任せる（長文選択中の一瞬の停止で誤確定しないため）
+        clearTimer();
+        return;
+      }
+      // タッチ／ペンは長押し選択の直後にハンドル操作が続きうるので、無操作が続いたら確定する
       clearTimer();
       commitTimerRef.current = setTimeout(commit, TOUCH_SETTLE_MS);
+    }
+
+    // selectionchange自体にはポインタ種別が含まれないため、pointerdownで先に記録しておく
+    function onPointerDown(e: PointerEvent) {
+      lastPointerWasMouseRef.current = e.pointerType === 'mouse';
     }
 
     // マウスは「離した＝選択し終わった」が明確。待たずに確定する。
@@ -403,9 +429,11 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     }
 
     document.addEventListener('selectionchange', onSelectionChange);
+    document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('pointerup', onPointerUp);
     return () => {
       document.removeEventListener('selectionchange', onSelectionChange);
+      document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('pointerup', onPointerUp);
       clearTimer();
     };

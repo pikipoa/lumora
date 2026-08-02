@@ -513,19 +513,22 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return stop();
 
-      const range = sel.getRangeAt(0);
-      const node =
-        range.commonAncestorContainer.nodeType === Node.TEXT_NODE
-          ? range.commonAncestorContainer.parentElement
-          : (range.commonAncestorContainer as Element | null);
+      // 判定には共通祖先ではなく**anchor（選択の起点＝動かない側）**を使う（2026-08-02修正）。
+      // 共通祖先で見ると、動いている端が本文の外（下部タブバー等）へ一瞬でも出た瞬間に
+      // 「担当外の選択」と判断してスクロールが止まり、そこで選択が詰まる。
+      // anchorはユーザーが選び始めた場所なので本文の中に留まり続け、判定が安定する。
+      const anchor =
+        sel.anchorNode?.nodeType === Node.TEXT_NODE
+          ? sel.anchorNode.parentElement
+          : (sel.anchorNode as Element | null);
 
-      // 自分が描画した本文の中での選択でなければ関与しない（確定ロジックと同じスコープ規則）
-      const owner = (node?.closest?.('[data-workspace-instance]') as HTMLElement | null)?.getAttribute(
+      // 自分が描画した本文の中で始まった選択でなければ関与しない（スコープ規則は確定側と同じ）
+      const owner = (anchor?.closest?.('[data-workspace-instance]') as HTMLElement | null)?.getAttribute(
         'data-workspace-instance',
       );
       if (owner !== instanceId) return stop();
 
-      const container = findScrollableAncestor(node);
+      const container = findScrollableAncestor(anchor);
       if (!container) return stop();
 
       target = container;

@@ -79,6 +79,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     alignItems: 'center',
     zIndex: 40,
+    // 操作用のUIはテキスト選択の対象にしない（2026-08-02）。
+    // このバーはposition:fixedで本文ScrollViewの下端より下に重なるため、本文を選択中に
+    // ハンドルをここまでドラッグすると、アイコン（🏠/⚙）が選択に含まれてしまう。
+    // すると選択の共通祖先が本文の外へ出て、オートスクロールも確定ロジックも
+    // 「自分の担当外の選択」と判断して停止し、選択が途中で詰まる（実機で確認）。
+    userSelect: 'none',
   } as object,
   item: { padding: Spacing.two },
 });

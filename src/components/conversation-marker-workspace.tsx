@@ -169,6 +169,14 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
    *  マウスで長文をドラッグ選択中に少し止まる（オートスクロール待ち・持ち直し等）だけで
    *  ボタンを離す前にタイマーが発火し、志半ばで確定してしまっていた */
   const lastPointerWasMouseRef = useRef(false);
+  /** 画面に指が触れているか（2026-08-02追加）。
+   *
+   *  マウスと同じ問題がタッチ側にも残っていた。ハンドルをドラッグ中に手が一瞬止まると
+   *  （オートスクロール待ち・持ち替え等）、指を離す前に900msタイマーが発火して
+   *  志半ばで確定してしまう（実機報告：「2回に1回は途中で色選択になる」）。
+   *  **指が触れている間は確定しない**とし、離してから待機時間を数え始める。
+   *  待機時間そのものは、離した直後にハンドルを掴み直す余地を残すために維持する。 */
+  const touchActiveRef = useRef(false);
   /** シートが開いているか（イベントハンドラから参照するためstateのミラー）。
    *  render中にrefを書き換えるのはReactの規約違反なのでeffectで同期する */
   const sheetOpenRef = useRef(false);
@@ -415,8 +423,10 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         clearTimer();
         return;
       }
-      // タッチ／ペンは長押し選択の直後にハンドル操作が続きうるので、無操作が続いたら確定する
+      // タッチ／ペン：**指が触れている間は確定しない**。ドラッグ中に手が止まっただけで
+      // 確定してしまうのを防ぐ（2026-08-02修正）。離した後の待機はonTouchEndで始める
       clearTimer();
+      if (touchActiveRef.current) return;
       commitTimerRef.current = setTimeout(commit, TOUCH_SETTLE_MS);
     }
 
@@ -425,8 +435,22 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       lastPointerWasMouseRef.current = e.pointerType === 'mouse';
     }
 
+    function onTouchStart() {
+      touchActiveRef.current = true;
+      // 掴み直しの最中に前回の待機時間が満了して確定するのを防ぐ
+      clearTimer();
+    }
+
+    // 指を離してから待機時間を数え始める。ここで初めて「選択し終わったかもしれない」状態になる
+    function onTouchEnd() {
+      touchActiveRef.current = false;
+      if (sheetOpenRef.current) return;
+      clearTimer();
+      commitTimerRef.current = setTimeout(commit, TOUCH_SETTLE_MS);
+    }
+
     // マウスは「離した＝選択し終わった」が明確。待たずに確定する。
-    // タッチ／ペンは長押し選択の直後にハンドル操作が続きうるので、上のタイマーに任せる
+    // タッチ／ペンは onTouchEnd 側で待機時間を開始する
     function onPointerUp(e: PointerEvent) {
       if (e.pointerType !== 'mouse' || sheetOpenRef.current) return;
       // このpointerupの後に最後のselectionchangeが来ることがあるため、1フレーム待つ
@@ -436,10 +460,16 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     document.addEventListener('selectionchange', onSelectionChange);
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('pointerup', onPointerUp);
+    document.addEventListener('touchstart', onTouchStart);
+    document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('touchcancel', onTouchEnd);
     return () => {
       document.removeEventListener('selectionchange', onSelectionChange);
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('pointerup', onPointerUp);
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchend', onTouchEnd);
+      document.removeEventListener('touchcancel', onTouchEnd);
       clearTimer();
     };
   }, [conversationId, instanceId]);

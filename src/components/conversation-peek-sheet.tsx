@@ -118,5 +118,12 @@ const styles = StyleSheet.create({
     padding: Spacing.four,
     gap: Spacing.three,
   },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  // 操作用のUIはテキスト選択の対象にしない（2026-08-02）。ScrollViewの中にあるが
+  // ワークスペースの外なので、本文を上方向へ選択するとここへ逃げてスコープ外になる
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    userSelect: 'none',
+  } as object,
 });

@@ -136,6 +136,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.four,
     paddingBottom: Spacing.two,
+    // 操作用のUIはテキスト選択の対象にしない（2026-08-02）。
+    // このヘッダーはスクロール領域の外に固定されているため、本文を上方向へ選択していくと
+    // ハンドルがここへ到達し、リンク文字が選択に含まれて選択が本文の外へ出てしまう
+    // （下部タブバーで起きたのと同じ症状。bottom-tab-bar.tsx参照）
+    userSelect: 'none',
   },
   content: {
     padding: Spacing.four,

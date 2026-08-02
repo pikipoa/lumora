@@ -21,6 +21,11 @@ import { createPortal } from 'react-dom';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import {
+  computeAutoScrollStep,
+  findScrollableAncestor,
+  getSelectionFocusRect,
+} from '@/lib/selectionAutoScroll';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -438,6 +443,112 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       clearTimer();
     };
   }, [conversationId, instanceId]);
+
+  // 選択中のオートスクロール（2026-08-01）。
+  //
+  // 【上の確定ロジックとは完全に independent】
+  // この効果が行うのは`container.scrollTop`の更新だけで、候補（candidateRef）にも
+  // 確定タイマーにも一切触れない。したがって最悪の場合でも「スクロールしない」で済み、
+  // マーカーの作成・確定が壊れることはない。
+  //
+  // 【なぜ必要か】
+  // 本文はScrollView（overflow:autoのdiv）の中にある。ブラウザ標準の「選択中に端まで来たら
+  // スクロールする」挙動は、ネストしたスクロールコンテナ、特にモバイルの選択ハンドル操作では
+  // 働かないことが多く、「1画面に収まる範囲しか選べない」制約になっていた（実機報告）。
+  //
+  // 【暴走防止】
+  // rAFで回すのは「指を離すまでスクロールし続ける」ために必要だが、止まらなくなると危険。
+  // 次のいずれかで必ず停止する：ポインタを離した／選択が解除された／シートが開いた／
+  // これ以上スクロールできない／実際にscrollTopが動かなくなった／絶対上限（8秒）。
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+
+    /** 万一どの停止条件も効かなかった場合の最後の砦 */
+    const MAX_DURATION_MS = 8000;
+
+    let rafId: number | null = null;
+    let startedAt = 0;
+    let target: HTMLElement | null = null;
+
+    const stop = () => {
+      if (rafId != null) cancelAnimationFrame(rafId);
+      rafId = null;
+      target = null;
+    };
+
+    const tick = () => {
+      rafId = null;
+      const container = target;
+      if (!container) return;
+      if (sheetOpenRef.current) return stop();
+      if (Date.now() - startedAt > MAX_DURATION_MS) return stop();
+
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return stop();
+
+      const rect = getSelectionFocusRect(sel);
+      if (!rect) return stop();
+
+      const box = container.getBoundingClientRect();
+      const step = computeAutoScrollStep({
+        focusTop: rect.top,
+        focusBottom: rect.bottom,
+        containerTop: box.top,
+        containerBottom: box.bottom,
+        canScrollUp: container.scrollTop > 0,
+        canScrollDown: container.scrollTop + container.clientHeight < container.scrollHeight - 1,
+      });
+      if (step === 0) return stop();
+
+      const before = container.scrollTop;
+      container.scrollTop = before + step;
+      // 実際に動かなかった＝端に到達している。回し続けない
+      if (container.scrollTop === before) return stop();
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    function onSelectionChangeForScroll() {
+      if (sheetOpenRef.current) return;
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return stop();
+
+      const range = sel.getRangeAt(0);
+      const node =
+        range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+          ? range.commonAncestorContainer.parentElement
+          : (range.commonAncestorContainer as Element | null);
+
+      // 自分が描画した本文の中での選択でなければ関与しない（確定ロジックと同じスコープ規則）
+      const owner = (node?.closest?.('[data-workspace-instance]') as HTMLElement | null)?.getAttribute(
+        'data-workspace-instance',
+      );
+      if (owner !== instanceId) return stop();
+
+      const container = findScrollableAncestor(node);
+      if (!container) return stop();
+
+      target = container;
+      if (rafId == null) {
+        startedAt = Date.now();
+        rafId = requestAnimationFrame(tick);
+      }
+    }
+
+    document.addEventListener('selectionchange', onSelectionChangeForScroll);
+    document.addEventListener('pointerup', stop);
+    document.addEventListener('pointercancel', stop);
+    document.addEventListener('touchend', stop);
+    document.addEventListener('touchcancel', stop);
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChangeForScroll);
+      document.removeEventListener('pointerup', stop);
+      document.removeEventListener('pointercancel', stop);
+      document.removeEventListener('touchend', stop);
+      document.removeEventListener('touchcancel', stop);
+      stop();
+    };
+  }, [instanceId]);
 
   function clearNativeSelection() {
     if (Platform.OS === 'web') window.getSelection()?.removeAllRanges();

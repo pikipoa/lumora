@@ -175,6 +175,10 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   /** タッチ時に「この範囲にマーカー」バーを出すかどうか（2026-08-02）。
    *  refと違って再描画が要るのでstateで持つ。中身はrefと同じ候補 */
   const [touchCandidate, setTouchCandidate] = useState<PendingSelection | null>(null);
+  /** 選択が複数のメッセージにまたがっているか（2026-08-03）。
+   *  markerはmessage_idを1つしか持てないため、この状態ではマーカーを作れない。
+   *  黙って部分保存せず、確定バーの代わりに理由を出す */
+  const [crossMessage, setCrossMessage] = useState(false);
   /** スクロール中はバーを隠す（2026-08-02）。
    *  読んでいる最中に固定のバーが視界へ残り続けると邪魔になるため、動いている間は消し、
    *  止まったら戻す。**表示の制御だけ**で、候補（candidateRef）には一切触れない。 */
@@ -267,6 +271,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     // 前の会話で選びかけていた候補を、新しい会話へ持ち越さない
     candidateRef.current = null;
     setTouchCandidate(null);
+    setCrossMessage(false);
     setLoading(true);
   }, [conversationId]);
 
@@ -400,6 +405,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         // 選択が解除された＝作りかけの候補も捨てる。バーも下げる
         candidateRef.current = null;
         setTouchCandidate(null);
+        setCrossMessage(false);
         return;
       }
       const domRange = sel.getRangeAt(0);
@@ -420,7 +426,33 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           'data-workspace-instance',
         ) ?? null;
 
-      if (!messageEl || !messageId) return;
+      // 選択が1つのメッセージを越えた場合（2026-08-03）。
+      //
+      // markerはmessage_idを1つしか持てないため、複数メッセージにまたがるマーカーは
+      // データモデル上作れない。以前はここで黙ってreturnしていたため、**候補が
+      // 境界を越える直前の値のまま凍結**し、965文字選んでも150文字で保存される、という
+      // 静かな欠損になっていた（実機報告）。
+      //
+      // 黙って部分保存するのが最も悪い。作れないことをユーザーへ伝えて止める。
+      if (!messageEl || !messageId) {
+        const startEl =
+          domRange.startContainer.nodeType === Node.TEXT_NODE
+            ? domRange.startContainer.parentElement
+            : (domRange.startContainer as Element | null);
+        const startedInThisWorkspace =
+          (startEl?.closest?.('[data-workspace-instance]') as HTMLElement | null)?.getAttribute(
+            'data-workspace-instance',
+          ) === instanceId;
+        // このワークスペースの中で始まった選択が、メッセージの外まで伸びた場合だけ知らせる。
+        // 無関係な場所の選択（他インスタンス・シート内など）には反応しない
+        if (startedInThisWorkspace && startEl?.closest?.('[data-message-id]')) {
+          candidateRef.current = null;
+          setTouchCandidate(null);
+          setCrossMessage(true);
+        }
+        return;
+      }
+      setCrossMessage(false);
 
       // このコンポーネントは同時に複数マウントされる（実機で同一会話3つを確認）。
       // expo-routerのStackが前の画面を保持し、フルページとピークシートも別インスタンス。
@@ -609,14 +641,18 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   // 確定バーのフェード。DESIGN.md原則5「Motion Has Meaning」に沿い、状態変化を
   // 伝えるためだけに使う。消える時は即座に（読む邪魔をしない）、現れる時は少し余韻を
   // 持たせる（「スッと現れる」）
-  const showMarkBar = !!touchCandidate && !pendingSelection && !realmPicker && !scrolling;
+  const sheetIsOpen = !!pendingSelection || !!realmPicker;
+  const showMarkBar = !!touchCandidate && !sheetIsOpen && !scrolling;
+  // またがっている間は確定バーの代わりに理由を出す。位置とフェードは同じものを使う
+  const showCrossMessage = crossMessage && !sheetIsOpen && !scrolling;
   useEffect(() => {
+    const visible = showMarkBar || showCrossMessage;
     Animated.timing(markBarOpacity, {
-      toValue: showMarkBar ? 1 : 0,
-      duration: showMarkBar ? 160 : 90,
+      toValue: visible ? 1 : 0,
+      duration: visible ? 160 : 90,
       useNativeDriver: true,
     }).start();
-  }, [showMarkBar, markBarOpacity]);
+  }, [showMarkBar, showCrossMessage, markBarOpacity]);
 
   function clearNativeSelection() {
     if (Platform.OS === 'web') window.getSelection()?.removeAllRanges();
@@ -634,6 +670,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     // 保留中の候補とバーも片付ける（選択を解除するので、残しておく意味がない）
     candidateRef.current = null;
     setTouchCandidate(null);
+    setCrossMessage(false);
   }
 
   /**
@@ -1136,7 +1173,18 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   // 候補そのものは保持し続けるので、スクロールが止まればそのまま戻る。
   // シートと同じくbody直下へポータルする——本文はScrollViewの中にあり、その中に置くと
   // スクロールに合わせて動いてしまうため（sheetOverlayの説明も参照）
-  const touchBar = showMarkBar ? (
+  const touchBar = showCrossMessage ? (
+    // 複数の発言にまたがっている間は作成できないので、確定バーの代わりに理由を出す。
+    // 黙って部分保存していた頃の欠損（965文字選んで150文字保存）への対処
+    <Animated.View style={[styles.markBar, { opacity: markBarOpacity }]} testID="cross-message-notice">
+      <ThemedView type="backgroundElement" style={styles.markBarNotice}>
+        <ThemedText type="small">{t.conversation.crossMessage}</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          {t.conversation.crossMessageNote}
+        </ThemedText>
+      </ThemedView>
+    </Animated.View>
+  ) : showMarkBar ? (
     <Animated.View style={[styles.markBar, { opacity: markBarOpacity }]} testID="mark-selection-bar">
       <Pressable
         onPress={() => commitCandidateRef.current()}
@@ -1298,6 +1346,14 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   markBarLabel: { fontWeight: '600' },
+  /** またがっている旨の案内。確定ボタンと同じ位置に出すが、押すものではないので角丸は控えめ */
+  markBarNotice: {
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.four,
+    borderRadius: Spacing.two,
+    gap: Spacing.one,
+    maxWidth: '90%',
+  } as object,
   /** スクリム：黒の半透明。ライト/ダークどちらでも本文を沈める */
   sheetScrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000000A6' } as object,
   sheetPanel: {

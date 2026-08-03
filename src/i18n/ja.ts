@@ -183,6 +183,10 @@ export const ja = {
     // 確定シートは引用を常に全文表示する（2026-08-03）。長文でも「全部見えている」ことが
     // 分かるよう、文字数を添える
     quoteLength: (count: number) => `${count}文字`,
+    // 複数メッセージにまたがる選択（2026-08-03）。markerはmessage_idを1つしか持てないため
+    // 作成できない。原因ではなく「次にどうすればよいか」を先に書く（DESIGN.md原則9）
+    crossMessage: '1つの発言の中で選び直してください。',
+    crossMessageNote: '複数の発言にまたがるマーカーは作成できません。',
     confirmColor: 'この色にする',
     removeMarker: 'このマーカーを外す',
     realmStepTitle: 'どのRealmへ',

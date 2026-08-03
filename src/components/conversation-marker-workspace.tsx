@@ -1227,12 +1227,19 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         <ThemedText type="small" themeColor="textSecondary">
           {t.conversation.bodyHint}
         </ThemedText>
-        {messages.map((m) => {
+        {messages.map((m, i) => {
           const layersForMessage = layersByMessage[m.id] ?? [];
           const segments = computeSegments(m.content, layersForMessage);
           return (
-            <ThemedView key={m.id} style={styles.messageRow}>
-              <ThemedText type="small" themeColor="textSecondary">
+            <ThemedView
+              key={m.id}
+              style={[
+                styles.messageRow,
+                // 最初の発言には引かない（直上のbodyHintと二重の区切りになるため）
+                i > 0 && { borderTopColor: theme.backgroundSelected },
+              ]}
+            >
+              <ThemedText type="smallBold" themeColor="textSecondary" style={styles.messageRoleLabel}>
                 {m.role === 'user' ? t.conversation.roleUser : t.conversation.roleAssistant}
               </ThemedText>
               {/* data-message-id が「どのメッセージか」の唯一の正解
@@ -1317,7 +1324,16 @@ const styles = StyleSheet.create({
   markerProposed: { borderBottomWidth: 2, borderBottomColor: '#999', borderStyle: 'dashed' },
   markerSelected: { outlineWidth: 2, outlineColor: '#208AEF', outlineStyle: 'solid' } as object,
   searchMatch: { textDecorationLine: 'underline', textDecorationColor: '#FF4D4D', textDecorationStyle: 'solid' } as object,
-  messageRow: { gap: Spacing.half, paddingVertical: Spacing.one },
+  // 発言どうしの境界を、枠やカードではなく余白と罫線だけで示す（2026-08-03）。
+  // DESIGN.mdのAvoid「カードだらけ／枠だらけ」に触れないため、線は1本・薄い色のみ。
+  // 発言をまたいで選択すると保存できない（onSelectionChangeのcrossMessage参照）ため、
+  // 区切りを視認しやすくして、そもそもまたぎにくくするのが狙い
+  messageRow: {
+    gap: Spacing.half,
+    paddingVertical: Spacing.three,
+    borderTopWidth: 1,
+  },
+  messageRoleLabel: { marginBottom: Spacing.half },
 
   // ── マーカー確定シート（2026-07-28）──────────────────────────────
   // 枠線・アイコン・説明文は置かない。引用テキストが最大要素で、色は点、

@@ -18,7 +18,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // requireへ落とすかを判断すること
 import { createPortal } from 'react-dom';
 
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { TAB_BAR_HEIGHT } from '@/components/bottom-tab-bar';
 import { ThemedText } from '@/components/themed-text';
@@ -166,6 +175,13 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   /** タッチ時に「この範囲にマーカー」バーを出すかどうか（2026-08-02）。
    *  refと違って再描画が要るのでstateで持つ。中身はrefと同じ候補 */
   const [touchCandidate, setTouchCandidate] = useState<PendingSelection | null>(null);
+  /** スクロール中はバーを隠す（2026-08-02）。
+   *  読んでいる最中に固定のバーが視界へ残り続けると邪魔になるため、動いている間は消し、
+   *  止まったら戻す。**表示の制御だけ**で、候補（candidateRef）には一切触れない。 */
+  const [scrolling, setScrolling] = useState(false);
+  /** 確定バーのフェード。消える時は速く、現れる時は少しゆっくり（「スッと現れる」ため）。
+   *  Animated.Valueは1回だけ作って使い回す（conversation-peek-sheet.tsxと同じ書き方） */
+  const [markBarOpacity] = useState(() => new Animated.Value(0));
   /** 直近の pointerdown が mouse だったか（selectionchange 自体にはポインタ種別が
    *  含まれないため、pointerdown で先に記録しておく）。2026-08-01修正：以前は
    *  pointerType を見ずに selectionchange のたびに900msタイマーを一律でセットしており、
@@ -559,6 +575,50 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       stop();
     };
   }, [instanceId]);
+
+  // スクロール中は確定バーを隠す（2026-08-02）。
+  //
+  // **表示の制御だけを行う。** 候補（candidateRef）にも確定ロジックにも触れないため、
+  // この効果が誤動作しても「バーが出たまま／出ないまま」になるだけで、マーカーの作成は壊れない。
+  //
+  // スクロールの停止を知る標準的な信号は無いので、最後のscrollイベントから一定時間
+  // 動きが無ければ「止まった」とみなす。この待ち時間は表示の演出にすぎず、
+  // 確定タイミングとは無関係である（確定は常にユーザーのタップによる）。
+  //
+  // captureフェーズで拾うのは、本文がネストしたScrollView内にあり、scrollイベントが
+  // 親要素へバブリングしないため（documentで直接listenしても届かない）。
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+
+    /** 最後のスクロールからこの時間だけ動きが無ければ「止まった」とみなす */
+    const SCROLL_IDLE_MS = 180;
+
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const onScroll = () => {
+      setScrolling(true);
+      if (idleTimer != null) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => setScrolling(false), SCROLL_IDLE_MS);
+    };
+
+    document.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('scroll', onScroll, true);
+      if (idleTimer != null) clearTimeout(idleTimer);
+    };
+  }, []);
+
+  // 確定バーのフェード。DESIGN.md原則5「Motion Has Meaning」に沿い、状態変化を
+  // 伝えるためだけに使う。消える時は即座に（読む邪魔をしない）、現れる時は少し余韻を
+  // 持たせる（「スッと現れる」）
+  const showMarkBar = !!touchCandidate && !pendingSelection && !realmPicker && !scrolling;
+  useEffect(() => {
+    Animated.timing(markBarOpacity, {
+      toValue: showMarkBar ? 1 : 0,
+      duration: showMarkBar ? 160 : 90,
+      useNativeDriver: true,
+    }).start();
+  }, [showMarkBar, markBarOpacity]);
 
   function clearNativeSelection() {
     if (Platform.OS === 'web') window.getSelection()?.removeAllRanges();
@@ -1079,22 +1139,23 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   // タッチでの確定バー（2026-08-02）。選択がある間だけ出し、タップで色選択へ進む。
   // 時間による自動確定を廃止したため、これが唯一の確定手段になる（マウスはpointerup）。
   // シートを開いている間は出さない（確定済みなので用が無い）。
+  // **スクロール中も出さない**——読んでいる最中に固定のバーが視界へ残ると邪魔になるため。
+  // 候補そのものは保持し続けるので、スクロールが止まればそのまま戻る。
   // シートと同じくbody直下へポータルする——本文はScrollViewの中にあり、その中に置くと
   // スクロールに合わせて動いてしまうため（sheetOverlayの説明も参照）
-  const touchBar =
-    touchCandidate && !pendingSelection && !realmPicker ? (
-      <View style={styles.markBar} testID="mark-selection-bar">
-        <Pressable
-          onPress={() => commitCandidateRef.current()}
-          style={[styles.markBarButton, { backgroundColor: theme.text }]}
-          testID="mark-selection-button"
-        >
-          <ThemedText style={[styles.markBarLabel, { color: theme.background }]}>
-            {t.conversation.markSelection}
-          </ThemedText>
-        </Pressable>
-      </View>
-    ) : null;
+  const touchBar = showMarkBar ? (
+    <Animated.View style={[styles.markBar, { opacity: markBarOpacity }]} testID="mark-selection-bar">
+      <Pressable
+        onPress={() => commitCandidateRef.current()}
+        style={[styles.markBarButton, { backgroundColor: theme.text }]}
+        testID="mark-selection-button"
+      >
+        <ThemedText style={[styles.markBarLabel, { color: theme.background }]}>
+          {t.conversation.markSelection}
+        </ThemedText>
+      </Pressable>
+    </Animated.View>
+  ) : null;
 
   const touchBarPortal =
     touchBar && Platform.OS === 'web' && typeof document !== 'undefined'

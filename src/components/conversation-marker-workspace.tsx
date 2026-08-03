@@ -23,6 +23,7 @@ import {
   Animated,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -153,7 +154,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   /** 色ステップで選択中の色。決定するまでは確定しない（プレビュー用） */
   const [sheetColor, setSheetColor] = useState<string | null>(null);
   /** 長い引用の折りたたみ。3行を超える場合のみトグルを出す */
-  const [quoteExpanded, setQuoteExpanded] = useState(false);
   /** 色確定後の「Realmを選ぶ」ステップ（v2.1認知フロー。スキップ可）。
    *  保存直後はload()が終わる前に表示するため、表示に必要な情報を持たせる */
   const [realmPicker, setRealmPicker] = useState<{
@@ -261,7 +261,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setPendingSelection(null);
     setEditingMarkerId(null);
     setSheetColor(null);
-    setQuoteExpanded(false);
     setRealmPicker(null);
     setNewRealmName(null);
     setSheetErrorCode(null);
@@ -354,7 +353,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setPendingSelection(candidate);
     setEditingMarkerId(null);
     setSheetColor(null);
-    setQuoteExpanded(false);
     setSheetErrorCode(null);
   }
   const commitCandidateRef = useRef(commitCandidate);
@@ -630,7 +628,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setPendingSelection(null);
     setEditingMarkerId(null);
     setSheetColor(null);
-    setQuoteExpanded(false);
     setRealmPicker(null);
     setNewRealmName(null);
     setSheetErrorCode(null);
@@ -651,7 +648,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setEditingMarkerId(layer.id);
     setPendingSelection({ messageId, start: layer.start, end: layer.end, text: marker.quoted_text });
     setSheetColor(marker.color);
-    setQuoteExpanded(false);
     setRealmPicker(null);
     setSheetErrorCode(null);
   }
@@ -833,7 +829,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setPendingSelection(null);
     setEditingMarkerId(null);
     setSheetColor(null);
-    setQuoteExpanded(false);
     setNewRealmName(null);
     setRealmPicker(nextRealmPickerId ? { markerId: nextRealmPickerId, quotedText: quoted, color } : null);
     load();
@@ -980,10 +975,6 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   const realmPickerColorHex = realmPicker?.color
     ? MARKER_COLORS.find((c) => c.key === realmPicker.color)?.hex
     : undefined;
-  // 3行を超えるかどうかは概算（1行あたりの文字数×3）で判定する。厳密な行数計測より
-  // 「長文だけ畳む」という意図が満たせればよい
-  const QUOTE_COLLAPSE_THRESHOLD = 90;
-  const quoteIsLong = quotedForSheet.length > QUOTE_COLLAPSE_THRESHOLD;
 
   const sheet =
     pendingSelection || realmPicker ? (
@@ -1049,21 +1040,23 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
             </>
           ) : (
             <>
-              {/* 何にマーカーを引くか（主役）。色を選ぶとここにプレビューが乗る */}
-              <Text
-                style={[styles.sheetQuote, { color: theme.text }, sheetColorHex && { backgroundColor: sheetColorHex }]}
-                numberOfLines={quoteExpanded ? undefined : 3}
-                testID="marker-sheet-quote"
-              >
-                {quotedForSheet}
-              </Text>
-              {quoteIsLong && (
-                <Pressable onPress={() => setQuoteExpanded((v) => !v)} testID="marker-sheet-quote-toggle">
-                  <ThemedText type="small" themeColor="textSecondary" style={styles.sheetToggle}>
-                    {quoteExpanded ? t.common.collapse : t.common.expand}
-                  </ThemedText>
-                </Pressable>
-              )}
+              {/* 何にマーカーを引くか（主役）。色を選ぶとここにプレビューが乗る。
+                  **必ず全文を表示する**（2026-08-03）。以前は3行で畳んでトグルを出していたが、
+                  200字程度の選択ではほとんどが隠れ、「何を保存しようとしているのか」を
+                  確認せずに色を決めることになっていた。マーカーはこのアプリの中心機能であり、
+                  確定前に全文を確認できないのは折りたたみの仕様ではなく欠損である。
+                  長文で確定ボタンが画面外へ押し出されないよう、引用部分だけをスクロールさせる */}
+              <ScrollView style={styles.sheetQuoteScroll} testID="marker-sheet-quote-scroll">
+                <Text
+                  style={[styles.sheetQuote, { color: theme.text }, sheetColorHex && { backgroundColor: sheetColorHex }]}
+                  testID="marker-sheet-quote"
+                >
+                  {quotedForSheet}
+                </Text>
+              </ScrollView>
+              <ThemedText type="small" themeColor="textSecondary" testID="marker-sheet-quote-length">
+                {t.conversation.quoteLength(quotedForSheet.length)}
+              </ThemedText>
 
               <View style={styles.sheetSwatchRow}>
                 {MARKER_COLORS.map((c) => (
@@ -1322,7 +1315,9 @@ const styles = StyleSheet.create({
   } as object,
   /** 引用テキスト＝主役。色を選ぶとここに背景色が乗る（プレビュー） */
   sheetQuote: { fontSize: 17, lineHeight: 26 },
-  sheetToggle: { paddingVertical: Spacing.one },
+  /** 引用は常に全文表示するが、長文でも色・決定が画面外へ押し出されないよう
+   *  ここだけスクロールさせる。上限はパネル（maxHeight:80%）の中で引用に割く分 */
+  sheetQuoteScroll: { maxHeight: 260 },
   sheetLabel: { marginTop: Spacing.one },
   sheetSwatchRow: { flexDirection: 'row', gap: Spacing.four, paddingVertical: Spacing.two },
   sheetSwatch: { width: 28, height: 28, borderRadius: 14 },

@@ -61,8 +61,6 @@ export const ja = {
     crashTitle: '問題が発生しました',
     crashBody: 'エラーが記録されました。再読み込みしてお試しください。',
     reload: '再読み込み',
-    expand: 'もっと見る',
-    collapse: '閉じる',
   },
 
   home: {
@@ -182,6 +180,9 @@ export const ja = {
     // タッチでの確定バー（2026-08-02）。時間による自動確定を廃止したことに伴う。
     // 動詞は日常語のまま（DESIGN.md原則8）。「確定」「適用」のような操作語は使わない
     markSelection: 'この範囲にマーカー',
+    // 確定シートは引用を常に全文表示する（2026-08-03）。長文でも「全部見えている」ことが
+    // 分かるよう、文字数を添える
+    quoteLength: (count: number) => `${count}文字`,
     confirmColor: 'この色にする',
     removeMarker: 'このマーカーを外す',
     realmStepTitle: 'どのRealmへ',

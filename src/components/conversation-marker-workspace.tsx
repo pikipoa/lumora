@@ -172,6 +172,15 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   // 選択中の候補（まだ確定していない）。
   // イベントハンドラ内から最新値を読む必要があるためstateではなくrefで持つ
   const candidateRef = useRef<PendingSelection | null>(null);
+  /** 診断用：この選択ジェスチャー中に候補が到達した最大の文字数（2026-08-03）。
+   *
+   *  実機報告：「長文はマーカーができなくて、勝手に短くなったものが採用される」。
+   *  保存前ガード（isSelectionPositionValid）はcontent.slice(start,end)===quoted_textの
+   *  内部整合性しか見ないため、候補自体が「短いが矛盾の無い値」になっていれば素通りする
+   *  ——ガードでは検出できない種類の欠損。推測で直す前に、ドラッグ中に候補が
+   *  「一度大きくなってから縮む」のか「そもそも大きくならない」のかを区別する。
+   *  本文は送らず、文字数だけをSentryへ記録する */
+  const maxCandidateLengthRef = useRef(0);
   /** タッチ時に「この範囲にマーカー」バーを出すかどうか（2026-08-02）。
    *  refと違って再描画が要るのでstateで持つ。中身はrefと同じ候補 */
   const [touchCandidate, setTouchCandidate] = useState<PendingSelection | null>(null);
@@ -270,6 +279,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setSheetErrorCode(null);
     // 前の会話で選びかけていた候補を、新しい会話へ持ち越さない
     candidateRef.current = null;
+    maxCandidateLengthRef.current = 0;
     setTouchCandidate(null);
     setCrossMessage(false);
     setLoading(true);
@@ -339,6 +349,19 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     const candidate = candidateRef.current;
     candidateRef.current = null;
     setTouchCandidate(null);
+
+    // 診断（2026-08-03）：確定した長さが、ドラッグ中に一度でも到達した最大長より
+    // 明確に短ければ、「一度大きくなってから縮んだ」ことの証拠としてSentryへ記録する。
+    // 本文は送らない。差が無ければ記録しない（正常なケースを埋めないため）
+    const maxSeen = maxCandidateLengthRef.current;
+    maxCandidateLengthRef.current = 0;
+    if (candidate && maxSeen - candidate.text.length > 5) {
+      Sentry.captureMessage('マーカー候補が確定時に縮んでいた（診断）', {
+        level: 'warning',
+        extra: { maxSeenLength: maxSeen, finalLength: candidate.text.length, messageId: candidate.messageId },
+      });
+    }
+
     if (!candidate) return;
     // 引用はシート内に再掲するので、本文側の選択はここで解除してよい
     if (Platform.OS === 'web') window.getSelection()?.removeAllRanges();
@@ -404,6 +427,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
         // 選択が解除された＝作りかけの候補も捨てる。バーも下げる
         candidateRef.current = null;
+        maxCandidateLengthRef.current = 0;
         setTouchCandidate(null);
         setCrossMessage(false);
         return;
@@ -447,6 +471,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         // 無関係な場所の選択（他インスタンス・シート内など）には反応しない
         if (startedInThisWorkspace && startEl?.closest?.('[data-message-id]')) {
           candidateRef.current = null;
+          maxCandidateLengthRef.current = 0;
           setTouchCandidate(null);
           setCrossMessage(true);
         }
@@ -469,6 +494,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       // 候補として保持する。ここでは確定しない
       const candidate = { messageId, start, end, text };
       candidateRef.current = candidate;
+      maxCandidateLengthRef.current = Math.max(maxCandidateLengthRef.current, text.length);
 
       // マウスは pointerup で確定するのでバーは出さない。
       // タッチ／ペンは「この範囲にマーカー」バーを出し、タップされるまで待つ
@@ -669,6 +695,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     setSheetErrorCode(null);
     // 保留中の候補とバーも片付ける（選択を解除するので、残しておく意味がない）
     candidateRef.current = null;
+    maxCandidateLengthRef.current = 0;
     setTouchCandidate(null);
     setCrossMessage(false);
   }

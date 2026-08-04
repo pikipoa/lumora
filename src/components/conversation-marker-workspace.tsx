@@ -1226,7 +1226,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         testID="mark-selection-button"
       >
         <ThemedText style={[styles.markBarLabel, { color: theme.background }]}>
-          {t.conversation.markSelection}
+          {t.conversation.markSelection(touchCandidate?.text.length ?? 0)}
         </ThemedText>
       </Pressable>
     </Animated.View>

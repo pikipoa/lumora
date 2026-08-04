@@ -121,19 +121,49 @@ export function findScrollableAncestor(start: Element | null): HTMLElement | nul
 /**
  * 選択の「動いている側の先端」の矩形を返す。
  * focusNode/focusOffsetは、ユーザーがドラッグしている側の端を指す。
+ *
+ * 【2026-08-05修正：「選択全体で代用」を廃止した】
+ * 以前は先端の矩形が潰れた（高さ0）場合、選択範囲**全体**の矩形で代用していた。
+ * これが暴走の原因だった：複数行にまたがる選択では、選択全体の下端は「今指がある位置」
+ * ではなく「アンカーから最も遠い場所」を指す。これがコンテナの下端よりずっと下にあると、
+ * computeAutoScrollStepは「大きく外側にはみ出している」と判定して常に最大速度を返す。
+ * 先端の矩形は、スクロール中に行の折り返し位置へ来た瞬間に頻発して潰れるため、
+ * 「潰れる→全体で代用→最大速度→大きく動く→また潰れる」という自己増幅ループになり、
+ * 一気に最下部まで進んでしまっていた（実機報告：「画面したまで行くとガタガタして
+ * 一気に下まで進む」）。
+ *
+ * 代わりに、1文字分ずらした位置で矩形を取り直す。それでも取れなければnullを返し、
+ * 呼び出し側（tick）はその1フレームを何もせずに止める——**暴走するくらいなら
+ * 何もしない方が安全**という方針（安全性の方針、ファイル冒頭のコメント参照）。
  */
 export function getSelectionFocusRect(sel: Selection): DOMRect | null {
   if (!sel.focusNode || sel.rangeCount === 0) return null;
-  const caret = document.createRange();
-  try {
-    caret.setStart(sel.focusNode, sel.focusOffset);
-    caret.setEnd(sel.focusNode, sel.focusOffset);
-  } catch {
-    return null;
+
+  const tryRectAt = (node: Node, offset: number): DOMRect | null => {
+    const caret = document.createRange();
+    try {
+      caret.setStart(node, offset);
+      caret.setEnd(node, offset);
+    } catch {
+      return null;
+    }
+    const rect = caret.getBoundingClientRect();
+    return rect.height > 0 ? rect : null;
+  };
+
+  const exact = tryRectAt(sel.focusNode, sel.focusOffset);
+  if (exact) return exact;
+
+  // 潰れていた場合、1文字分ずらして取り直す（前後どちらか取れた方でよい）。
+  // 選択全体では代用しない——上のコメントのとおり誤った距離判定を招くため
+  if (sel.focusOffset > 0) {
+    const before = tryRectAt(sel.focusNode, sel.focusOffset - 1);
+    if (before) return before;
   }
-  const rect = caret.getBoundingClientRect();
-  if (rect.height > 0) return rect;
-  // 行の折り返し位置などで潰れた矩形になることがある。その場合は選択全体で代用する
-  const whole = sel.getRangeAt(0).getBoundingClientRect();
-  return whole.height > 0 ? whole : null;
+  const len = sel.focusNode.textContent?.length ?? 0;
+  if (sel.focusOffset < len) {
+    const after = tryRectAt(sel.focusNode, sel.focusOffset + 1);
+    if (after) return after;
+  }
+  return null;
 }

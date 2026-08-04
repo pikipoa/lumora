@@ -26,8 +26,24 @@ export const EDGE_THRESHOLD_PX = 48;
  * 60fpsで動くため、この値×60が1秒あたりの最大スクロール量になる。
  * 当初12（≒720px/秒）にしていたが実機で「速すぎる」と判明したため4（≒240px/秒）へ下げた
  * （2026-08-02）。行の高さがおよそ24pxなので、毎秒10行程度の速さにあたる。
+ *
+ * 【2026-08-05・固定速度をやめた理由】
+ * 4のままだと、900文字のような長文では端まで数秒以上スクロールし続ける必要がある。
+ * モバイルの選択ハンドルはドラッグ中に指を離すと**伸長ではなく新しい選択の開始**と
+ * 解釈されることがあり、実機で「掴み直した」結果、後半の一部だけが保存される欠損に
+ * つながった（診断の結果、保存文字列はブラウザの生のselectionそのものであり、座標計算の
+ * バグではないことをコードで確認済み）。
+ *
+ * 単一の固定速度では「速すぎる」（初回の指摘）と「遅すぎる」（今回）を同時に満たせない。
+ * そこで**端に留まっている時間**を加速の入力に加えた。掴んだ直後はこの値（穏やか）で始まり、
+ * 留まり続けるほど`MAX_STEP_PX_ACCELERATED`まで加速する。短い選択は従来どおり穏やかなまま、
+ * 長い選択は途中で指を離さずに端まで到達できるようにする。
  */
 export const MAX_STEP_PX = 4;
+/** 端に留まり続けた場合の上限速度（px/フレーム）。MAX_STEP_PXの5倍＝約1200px/秒 */
+export const MAX_STEP_PX_ACCELERATED = 20;
+/** この時間（ms）留まり続けると、加速が上限に達する */
+export const ACCELERATION_DURATION_MS = 1200;
 
 export interface EdgeScrollInput {
   /** 選択の「動いている側の先端」の矩形（ビューポート座標） */
@@ -47,13 +63,25 @@ export interface EdgeScrollInput {
  *
  * DOMに触れないので単体テストできる。この関数を分けているのは、
  * 「端の判定」という最も間違えやすい部分を検証可能にするため。
+ *
+ * `msAtEdge`（2026-08-05追加）：端に留まり続けている時間。0なら`baseStep`（穏やか）から
+ * 始まり、`accelerationDurationMs`かけて`acceleratedStep`まで線形に加速する。
+ * 掴んだ直後の速度は変えず（「速すぎる」という初回の指摘への配慮）、長く留まる場合だけ
+ * 速くする——長文選択で端まで数秒以上待たされ、指を離して掴み直す（＝選択が新しく
+ * 始まってしまう）ことを避けるため。
  */
 export function computeAutoScrollStep(
   input: EdgeScrollInput,
+  msAtEdge: number = 0,
   threshold: number = EDGE_THRESHOLD_PX,
-  maxStep: number = MAX_STEP_PX,
+  baseStep: number = MAX_STEP_PX,
+  acceleratedStep: number = MAX_STEP_PX_ACCELERATED,
+  accelerationDurationMs: number = ACCELERATION_DURATION_MS,
 ): number {
   const { focusTop, focusBottom, containerTop, containerBottom, canScrollUp, canScrollDown } = input;
+
+  const accelerationRatio = Math.max(0, Math.min(1, msAtEdge / accelerationDurationMs));
+  const maxStep = baseStep + (acceleratedStep - baseStep) * accelerationRatio;
 
   const distanceFromTop = focusTop - containerTop;
   const distanceFromBottom = containerBottom - focusBottom;

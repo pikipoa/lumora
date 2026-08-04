@@ -569,14 +569,21 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       if (!rect) return stop();
 
       const box = container.getBoundingClientRect();
-      const step = computeAutoScrollStep({
-        focusTop: rect.top,
-        focusBottom: rect.bottom,
-        containerTop: box.top,
-        containerBottom: box.bottom,
-        canScrollUp: container.scrollTop > 0,
-        canScrollDown: container.scrollTop + container.clientHeight < container.scrollHeight - 1,
-      });
+      // startedAtは「連続してスクロールし続けている時間」を表す（端から離れるたびにstop()で
+      // リセットされ、再び端に来た時だけ新しく始まる。2026-08-05）。これを加速の入力にする——
+      // 長文選択で端に長く留まるほど速くなり、指を離さず端まで到達できるようにする
+      const msAtEdge = Date.now() - startedAt;
+      const step = computeAutoScrollStep(
+        {
+          focusTop: rect.top,
+          focusBottom: rect.bottom,
+          containerTop: box.top,
+          containerBottom: box.bottom,
+          canScrollUp: container.scrollTop > 0,
+          canScrollDown: container.scrollTop + container.clientHeight < container.scrollHeight - 1,
+        },
+        msAtEdge,
+      );
       if (step === 0) return stop();
 
       const before = container.scrollTop;

@@ -1,7 +1,9 @@
 import {
+  ACCELERATION_DURATION_MS,
   computeAutoScrollStep,
   EDGE_THRESHOLD_PX,
   MAX_STEP_PX,
+  MAX_STEP_PX_ACCELERATED,
   type EdgeScrollInput,
 } from '@/lib/selectionAutoScroll';
 
@@ -70,5 +72,48 @@ describe('computeAutoScrollStep', () => {
       input({ containerTop: 300, containerBottom: 340, focusTop: 310, focusBottom: 330 }),
     );
     expect(step).toBeLessThan(0);
+  });
+
+  it('msAtEdgeを渡さない場合は従来どおりMAX_STEP_PXが上限になる（後方互換）', () => {
+    const step = computeAutoScrollStep(input({ focusTop: 800, focusBottom: 820 }));
+    expect(step).toBe(MAX_STEP_PX);
+  });
+
+  it('端に留まり始めた直後（msAtEdge=0）は穏やかな速度のまま', () => {
+    const step = computeAutoScrollStep(input({ focusTop: 800, focusBottom: 820 }), 0);
+    expect(step).toBe(MAX_STEP_PX);
+  });
+
+  it('端に留まり続けると、上限（ACCELERATION_DURATION_MS）で最大加速速度に達する', () => {
+    const step = computeAutoScrollStep(
+      input({ focusTop: 800, focusBottom: 820 }),
+      ACCELERATION_DURATION_MS,
+    );
+    expect(step).toBe(MAX_STEP_PX_ACCELERATED);
+  });
+
+  it('加速の上限を超えて留まっても、それ以上は速くならない（青天井にしない）', () => {
+    const step = computeAutoScrollStep(
+      input({ focusTop: 800, focusBottom: 820 }),
+      ACCELERATION_DURATION_MS * 10,
+    );
+    expect(step).toBe(MAX_STEP_PX_ACCELERATED);
+  });
+
+  it('留まる時間が長いほど速くなる（途中経過も単調増加）', () => {
+    const early = computeAutoScrollStep(
+      input({ focusTop: 800, focusBottom: 820 }),
+      ACCELERATION_DURATION_MS * 0.25,
+    );
+    const late = computeAutoScrollStep(
+      input({ focusTop: 800, focusBottom: 820 }),
+      ACCELERATION_DURATION_MS * 0.75,
+    );
+    expect(late).toBeGreaterThan(early);
+  });
+
+  it('留まる時間が負でも穏やかな速度を下回らない（時計のずれ等の防御）', () => {
+    const step = computeAutoScrollStep(input({ focusTop: 800, focusBottom: 820 }), -500);
+    expect(step).toBe(MAX_STEP_PX);
   });
 });

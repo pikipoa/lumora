@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // Phase1はWeb版のみのためstatic importで足りる（react-dom自体はreact-native-webの依存として
 // 既に入っている）。ネイティブ版に着手する際は、この1行のためだけに.web.tsxへ分割するか
 // requireへ落とすかを判断すること
+import { useIsFocused } from 'expo-router';
 import { createPortal } from 'react-dom';
 
 import {
@@ -138,6 +139,15 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   const [instanceId] = useState(() => `wsi-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
 
   const theme = useTheme();
+  /** この画面が今フォーカス（前面）にあるか（2026-08-05）。
+   *
+   *  expo-routerのStackは前の画面をアンマウントせず保持する（同一会話が複数マウント
+   *  される件と同じ性質、instanceIdの説明を参照）。会話画面からホームへ移動しても
+   *  このコンポーネントは裏で生き続けるため、document.bodyへ直接ポータルしている
+   *  確定バー・シートは、画面の前後関係と無関係に表示され続けてしまう
+   *  （実機報告：「マーカーで選択したまま、トップページボタンを押すと、この範囲に
+   *  マーカーのバーが消えずに残る」）。ポータルの表示はこのフラグでも必ずゲートする。 */
+  const isFocused = useIsFocused();
   const [jumpedMarkerId, setJumpedMarkerId] = useState<string | null>(null);
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
   const [messages, setMessages] = useState<MessageRow[]>([]);
@@ -1207,10 +1217,14 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   // body直下へ出すとアプリのルート要素より後ろに並ぶので、確実に最前面になる。
   // 副次的な効果として、モーダル表示中にタブバーを押して別画面へ離脱できる穴も塞がる
   // （タブバーの位置はスクリムが受け取り、シートを閉じる操作になる）。
+  // web以外は従来どおりsheetをそのまま描画する（ポータル不要）。
+  // webはisFocusedでもゲートする——前面の画面の時にしかbody直下へ出さない
   const sheetPortal =
-    sheet && Platform.OS === 'web' && typeof document !== 'undefined'
-      ? createPortal(sheet, document.body)
-      : sheet;
+    Platform.OS !== 'web'
+      ? sheet
+      : sheet && typeof document !== 'undefined' && isFocused
+        ? createPortal(sheet, document.body)
+        : null;
 
   // タッチでの確定バー（2026-08-02）。選択がある間だけ出し、タップで色選択へ進む。
   // 時間による自動確定を廃止したため、これが唯一の確定手段になる（マウスはpointerup）。
@@ -1244,10 +1258,13 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     </Animated.View>
   ) : null;
 
+  // sheetPortalと同じ理由でisFocusedもゲートする
   const touchBarPortal =
-    touchBar && Platform.OS === 'web' && typeof document !== 'undefined'
-      ? createPortal(touchBar, document.body)
-      : touchBar;
+    Platform.OS !== 'web'
+      ? touchBar
+      : touchBar && typeof document !== 'undefined' && isFocused
+        ? createPortal(touchBar, document.body)
+        : null;
 
   return (
     <>

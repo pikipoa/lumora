@@ -1425,12 +1425,21 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                     // 選択範囲→文字位置の変換（rangeToOffsets）がこの属性を土台に使う
                     const segDiagProps: object = { dataSet: { segStart: String(segStart) } };
                     // keyは配列インデックスではなく**本文中の位置**にする（2026-08-05）。
-                    // computeSegmentsはマーカーの重なりに応じて分割数・境界が動的に変わるため、
-                    // key={i}だとセグメント構成が変わった時にReactが要素を差し替え／削除する。
-                    // 選択の境界点を含むテキストノードが削除されると、DOM仕様により境界点は
-                    // 親ノードへ「せり上がり」、連鎖すると本文の先頭に着地する
-                    // （＝左ハンドルが最上部へ飛ぶ症状）。位置ベースのkeyなら、同じ範囲の
-                    // セグメントは再レンダリングを跨いで同一要素として維持される
+                    //
+                    // 【この変更は「左ハンドルが飛ぶ」バグの原因ではない（2026-08-06訂正）】
+                    // 当初これを原因と考えたが、必要条件が2つとも成立しないことを後から確認した：
+                    //   - computeSegmentsの入力は m.content と layersByMessage（依存は
+                    //     [markers, messages]）のみで、**選択中の状態は一切入らない**。
+                    //     したがって選択中にセグメント構成は変わらず、key={i}でも
+                    //     テキストノードは削除されない
+                    //   - setScrolling(true)は連続スクロール中ずっと同じ値なのでReactが
+                    //     bailoutする。「毎フレーム再レンダリング」も誤りだった
+                    // 原因は未特定のまま。この変更は、マーカーが増減した時（＝実際に
+                    // セグメント構成が変わる時）に無駄な再マウントを避けるという、
+                    // それ自体として妥当な改善として残す。
+                    //
+                    // なおcomputeSegmentsの不変条件（隙間なく連続・開始位置が単調増加）に
+                    // よりstart-endの組は一意で、keyとして安全
                     const segKey = `${segStart}-${seg.end}`;
 
                     if (!seg.layer) {

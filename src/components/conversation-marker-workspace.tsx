@@ -401,6 +401,11 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           releaseCount: trace.releaseCount,
           changeAfterReleaseCount: trace.changeAfterReleaseCount,
           anchorCollapsedToZeroCount: trace.anchorCollapsedToZeroCount,
+          // 仮説①（DOM削除による境界点のせり上がり）の判定材料
+          anchorBecameElementCount: trace.anchorBecameElementCount,
+          anchorDisconnectedCount: trace.anchorDisconnectedCount,
+          lastAnchorNodeName: trace.lastAnchorNodeName,
+          lastAnchorInsideMessage: trace.lastAnchorInsideMessage,
           lastAnchorOffset: trace.lastAnchorOffset,
           lastFocusOffset: trace.lastFocusOffset,
           traceMaxLength: trace.maxLength,
@@ -499,6 +504,19 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         tr.lastAnchorOffset = sel.anchorOffset;
         tr.lastFocusOffset = sel.focusOffset;
         if (prevAnchor > 0 && sel.anchorOffset === 0) tr.anchorCollapsedToZeroCount++;
+
+        // 仮説①（DOM削除でRangeの境界点が親へせり上がる）の直接検証。
+        // 境界点を含むノードが削除されると、DOM仕様により境界点は
+        // 「親ノード＋そのノードのindex」へ移動する。連鎖すれば本文コンテナ直下＝先頭に着地する。
+        // anchorNodeがテキストノードでなくなっていれば、それが起きた証拠になる
+        const an = sel.anchorNode;
+        if (an) {
+          tr.lastAnchorNodeName = an.nodeType === Node.TEXT_NODE ? '#text' : an.nodeName;
+          if (an.nodeType !== Node.TEXT_NODE) tr.anchorBecameElementCount++;
+          if (!an.isConnected) tr.anchorDisconnectedCount++;
+          const anEl = an.nodeType === Node.TEXT_NODE ? an.parentElement : (an as Element);
+          tr.lastAnchorInsideMessage = !!anEl?.closest?.('[data-message-id]');
+        }
         const len = sel.toString().length;
         tr.lastLength = len;
         tr.maxLength = Math.max(tr.maxLength, len);
@@ -1400,12 +1418,20 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                   （2026-07-26。詳細はonSelectionChangeのコメント） */}
               <View {...({ dataSet: { messageId: m.id, conversationId } } as object)}>
                 <Text selectable style={[styles.messageText, { color: theme.text }]}>
-                  {segments.map((seg, i) => {
+                  {segments.map((seg) => {
                     // 開始位置は純粋関数computeSegmentsが確定させた値を読むだけにする
                     // （render中に変数を加算しない。理由：markerLayout.ts TextSegment.start）
                     const segStart = seg.start;
                     // 選択範囲→文字位置の変換（rangeToOffsets）がこの属性を土台に使う
                     const segDiagProps: object = { dataSet: { segStart: String(segStart) } };
+                    // keyは配列インデックスではなく**本文中の位置**にする（2026-08-05）。
+                    // computeSegmentsはマーカーの重なりに応じて分割数・境界が動的に変わるため、
+                    // key={i}だとセグメント構成が変わった時にReactが要素を差し替え／削除する。
+                    // 選択の境界点を含むテキストノードが削除されると、DOM仕様により境界点は
+                    // 親ノードへ「せり上がり」、連鎖すると本文の先頭に着地する
+                    // （＝左ハンドルが最上部へ飛ぶ症状）。位置ベースのkeyなら、同じ範囲の
+                    // セグメントは再レンダリングを跨いで同一要素として維持される
+                    const segKey = `${segStart}-${seg.end}`;
 
                     if (!seg.layer) {
                       // 検索語ハイライト：マーカーが無い区間の中に検索ヒットがあれば、
@@ -1419,7 +1445,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                         const hitStart = Math.max(0, searchMatch.start - segStart);
                         const hitEnd = Math.min(seg.text.length, searchMatch.end - segStart);
                         return (
-                          <Text key={i} {...segDiagProps}>
+                          <Text key={segKey} {...segDiagProps}>
                             {seg.text.slice(0, hitStart)}
                             <Text style={styles.searchMatch} testID="search-match-highlight">
                               {seg.text.slice(hitStart, hitEnd)}
@@ -1429,7 +1455,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                         );
                       }
                       return (
-                        <Text key={i} {...segDiagProps}>
+                        <Text key={segKey} {...segDiagProps}>
                           {seg.text}
                         </Text>
                       );
@@ -1441,7 +1467,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
                       : '#FFD23D88';
                     return (
                       <Text
-                        key={i}
+                        key={segKey}
                         {...segDiagProps}
                         onPress={() => startEditingMarker(m.id, seg.layer!)}
                         style={[

@@ -58,6 +58,16 @@ export interface SelectionTrace {
   lastLength: number;
   /** anchorOffsetが0へ落ちた回数（「上のハンドルが最上部まで飛ぶ」症状の検出） */
   anchorCollapsedToZeroCount: number;
+
+  // --- 仮説①（DOM削除でRangeの境界点が親へせり上がる）の検証用 ---
+  /** anchorNodeがテキストノードでなくなった回数。要素ノードへ変わっていたら①の直接証拠 */
+  anchorBecameElementCount: number;
+  /** anchorNode.isConnected が false だった回数（＝DOMから切り離されたノードを指している） */
+  anchorDisconnectedCount: number;
+  /** 直近のanchorNodeのnodeName（TEXTなら正常、DIV等ならせり上がっている） */
+  lastAnchorNodeName: string;
+  /** 直近のanchorNodeが data-message-id の内側にあったか（外なら本文の外へ出ている） */
+  lastAnchorInsideMessage: boolean;
 }
 
 export function createTrace(): SelectionTrace {
@@ -73,5 +83,9 @@ export function createTrace(): SelectionTrace {
     maxLength: 0,
     lastLength: 0,
     anchorCollapsedToZeroCount: 0,
+    anchorBecameElementCount: 0,
+    anchorDisconnectedCount: 0,
+    lastAnchorNodeName: '',
+    lastAnchorInsideMessage: true,
   };
 }

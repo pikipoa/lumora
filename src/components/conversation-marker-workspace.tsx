@@ -429,6 +429,20 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   useEffect(() => {
     if (Platform.OS !== 'web') return;
 
+    /**
+     * 候補を持たない状態にする（クリア）。「凍結させるより消す方が安全」という
+     * 方針の実体（2026-08-05）。以前はここを個別の早期returnごとにコピーしていたが、
+     * 一部の早期return（selectedInstanceId不一致・text空）に書き忘れがあり、
+     * そこを通ると候補も表示中の文字数も更新されないまま止まる欠損が残っていた
+     * （実機報告：「掴み直した後、バーの数字は止まる」）。以後は
+     * 「有効な候補を作れた時だけ更新し、それ以外は必ずこれを呼ぶ」の一本にする。
+     */
+    function clearCandidate() {
+      candidateRef.current = null;
+      maxCandidateLengthRef.current = 0;
+      setTouchCandidate(null);
+    }
+
     function onSelectionChange() {
       // シートを開いている間は本文の選択を追わない（シート内テキストの選択等に反応しない）
       if (sheetOpenRef.current) return;
@@ -436,82 +450,76 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
         // 選択が解除された＝作りかけの候補も捨てる。バーも下げる
-        candidateRef.current = null;
-        maxCandidateLengthRef.current = 0;
-        setTouchCandidate(null);
+        clearCandidate();
         setCrossMessage(false);
         return;
       }
       const domRange = sel.getRangeAt(0);
 
+      // このワークスペース内で始まった選択かどうかを、まず1回だけ判定する（2026-08-05）。
+      // 判定にはstartContainer（選択の起点＝動かない側）を使う——commonAncestorContainerで
+      // 判定すると、選択が伸びて共通祖先が本文の外へ出た瞬間に「担当外」と誤判定される
+      // （オートスクロールのスコープ判定を anchor 基準にしたのと同じ理由。
+      // 「選択が下部タブバーへ逃げて詰まる問題」参照）。
+      // 無関係な場所の選択（他インスタンス・シート内など）には一切反応しない——
+      // ここがfalseの場合だけは、候補に触れずそのまま抜けてよい（自分の担当ではないため）。
+      const startEl =
+        domRange.startContainer.nodeType === Node.TEXT_NODE
+          ? domRange.startContainer.parentElement
+          : (domRange.startContainer as Element | null);
+      const startedInThisWorkspace =
+        (startEl?.closest?.('[data-workspace-instance]') as HTMLElement | null)?.getAttribute(
+          'data-workspace-instance',
+        ) === instanceId;
+      if (!startedInThisWorkspace) return;
+
+      // ここから先、この選択は自分の担当である。**有効な候補を作れた時だけ更新し、
+      // それ以外の経路は必ずclearCandidate()を通す**——凍結を二度と作らない。
+
       // どのメッセージ内の選択かは、JS側のマップ（旧messageRefs）ではなくDOM自身が持つ
       // data-message-id から決める（2026-07-26）。選択はDOM上の出来事なので、
       // 「実際に描画されている要素に書かれたID」が最も確かな情報になる。
-      // このコンポーネントは同時に複数マウントされうる（下のinstanceIdの説明を参照）ため、
-      // JS側のマップを唯一の正解にするのは危うい。
       const anchorNode =
         domRange.commonAncestorContainer.nodeType === Node.TEXT_NODE
           ? domRange.commonAncestorContainer.parentElement
           : (domRange.commonAncestorContainer as Element | null);
       const messageEl = anchorNode?.closest?.('[data-message-id]') as HTMLElement | null;
       const messageId = messageEl?.getAttribute('data-message-id') ?? null;
-      const selectedInstanceId =
-        (anchorNode?.closest?.('[data-workspace-instance]') as HTMLElement | null)?.getAttribute(
-          'data-workspace-instance',
-        ) ?? null;
 
-      // 選択が1つのメッセージを越えた、または解決できない場合（2026-08-03・2026-08-05修正）。
-      //
+      // 選択が1つのメッセージを越えた、またはmessageElが解決できない場合（2026-08-03）。
       // markerはmessage_idを1つしか持てないため、複数メッセージにまたがるマーカーは
-      // データモデル上作れない。以前はここで黙ってreturnしていたため、**候補が
-      // 境界を越える直前の値のまま凍結**し、965文字選んでも150文字で保存される、という
-      // 静かな欠損になっていた（実機報告）。
+      // データモデル上作れない。
       //
-      // 【2026-08-05修正】上の対策には抜け道が残っていた。「このワークスペース内で始まった
-      // 選択がメッセージの外へ伸びた」という1パターンでしか候補をクリアしておらず、
-      // それ以外の理由でmessageElが解決できない場合（掴み直しの瞬間に指がメッセージ間の
-      // 余白など構造的に曖昧な位置へ触れた等）は、今度は**表示中の文字数が凍結**したまま
-      // 更新されない、という形で同じ「静かな停止」が再発していた（実機報告：「縮んだと
-      // いうより、数字が止まった」）。
-      //
-      // 通知するかどうか（本当にメッセージをまたいだと判定できる場合だけ）と、
-      // 候補を凍結させないこと（理由を問わず常に）は、別の話として分離する。
+      // 「メッセージをまたいだ」と自信を持って言えるのは、開始点にメッセージの手がかりが
+      // あった場合だけ。それ以外は原因不明として、誤った理由を出さない
+      // （役割ラベルに選択が触れた場合など。messageRoleLabelのuserSelect:'none'で
+      // 主要因は塞いだが、念のためここでも凍結させない）。
       if (!messageEl || !messageId) {
-        const startEl =
-          domRange.startContainer.nodeType === Node.TEXT_NODE
-            ? domRange.startContainer.parentElement
-            : (domRange.startContainer as Element | null);
-        const startedInThisWorkspace =
-          (startEl?.closest?.('[data-workspace-instance]') as HTMLElement | null)?.getAttribute(
-            'data-workspace-instance',
-          ) === instanceId;
-        // 無関係な場所の選択（他インスタンス・シート内など）には反応しない。
-        // このワークスペース内で始まった選択でなければ、通知も候補のクリアも行わない
-        if (!startedInThisWorkspace) return;
-
-        // ここに来た時点で候補は必ずクリアする。表示され続ける文字数が実態と
-        // 食い違ったまま止まることだけは避ける（凍結より「バーが消える」方が安全）
-        candidateRef.current = null;
-        maxCandidateLengthRef.current = 0;
-        setTouchCandidate(null);
-        // 「メッセージをまたいだ」と自信を持って言えるのは、開始点にメッセージの
-        // 手がかりがあった場合だけ。それ以外は原因不明として、誤った理由を出さない
+        clearCandidate();
         setCrossMessage(!!startEl?.closest?.('[data-message-id]'));
         return;
       }
       setCrossMessage(false);
 
+      const selectedInstanceId =
+        (anchorNode?.closest?.('[data-workspace-instance]') as HTMLElement | null)?.getAttribute(
+          'data-workspace-instance',
+        ) ?? null;
       // このコンポーネントは同時に複数マウントされる（実機で同一会話3つを確認）。
       // expo-routerのStackが前の画面を保持し、フルページとピークシートも別インスタンス。
-      // 全インスタンスがdocumentにselectionchangeリスナーを張り、色ツールバーも
-      // document.bodyへポータル描画するため、スコープを絞らないと「ユーザーが選択したのは
-      // 別インスタンスの画面なのに、こちらのstate（別の読み込みタイミングのmessages）で
-      // 検証・保存される」交差が起こる。
-      // 自分が描画した要素の中での選択でなければ、このインスタンスは一切関与しない。
-      if (selectedInstanceId !== instanceId) return;
+      // startedInThisWorkspaceは「選択がどこで始まったか」、これは「選択が今どこに
+      // 属するか」——選択が進むうちに別インスタンスの領域へ実際に移った場合は、
+      // もう自分の担当ではないので候補を手放す
+      if (selectedInstanceId !== instanceId) {
+        clearCandidate();
+        return;
+      }
 
       const { start, end, text } = rangeToOffsets(messageEl, domRange);
-      if (!text) return;
+      if (!text) {
+        clearCandidate();
+        return;
+      }
 
       // 候補として保持する。ここでは確定しない
       const candidate = { messageId, start, end, text };
@@ -1396,7 +1404,14 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     borderTopWidth: 1,
   },
-  messageRoleLabel: { marginBottom: Spacing.half },
+  // 役割ラベル（あなた／AI）はdata-message-idを持つラッパーの**外側の兄弟**（2026-08-05）。
+  // 明示しない限りRNWのTextはブラウザ既定（選択可能）のままなので、ここに選択の端が
+  // 触れると共通祖先がdata-message-idの外（messageRow）まで持ち上がり、メッセージが
+  // 解決できなくなる。掴み直しの指がラベル付近に触れやすいこと（8/3の余白拡大で
+  // ラベル周辺の当たり判定も広がった）と符合する（実機報告：「掴み直した後、
+  // バーの数字は止まる」）。タブバー・ヘッダーと同じ原則（操作/メタ情報要素は
+  // 選択対象にしない）をここにも適用する
+  messageRoleLabel: { marginBottom: Spacing.half, userSelect: 'none' } as object,
 
   // ── マーカー確定シート（2026-07-28）──────────────────────────────
   // 枠線・アイコン・説明文は置かない。引用テキストが最大要素で、色は点、

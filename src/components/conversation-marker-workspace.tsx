@@ -45,6 +45,12 @@ import { t } from '@/i18n';
 import { rangeToOffsets } from '@/lib/domSelection';
 import { computeSegments, extractContext, resolveMarkerPosition, type MarkerLayer } from '@/lib/markerLayout';
 import { getRecentRealmIds, markRealmUsed, sortByRecency } from '@/lib/recentRealms';
+import {
+  createTrace,
+  isAutoScrollDisabled,
+  isSelectionDebugEnabled,
+  type SelectionTrace,
+} from '@/lib/selectionDiagnostics';
 import { Sentry } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
 
@@ -191,6 +197,10 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
    *  「一度大きくなってから縮む」のか「そもそも大きくならない」のかを区別する。
    *  本文は送らず、文字数だけをSentryへ記録する */
   const maxCandidateLengthRef = useRef(0);
+  /** 切り分け用の計測（2026-08-05・一時的）。?selDebug=1 の時だけ動く。本文は保持しない */
+  const traceRef = useRef<SelectionTrace | null>(null);
+  /** 直近で指を離した時刻。「離した後にブラウザが勝手に選択を変えたか」の判定に使う */
+  const lastReleaseAtRef = useRef(0);
   /** タッチ時に「この範囲にマーカー」バーを出すかどうか（2026-08-02）。
    *  refと違って再描画が要るのでstateで持つ。中身はrefと同じ候補 */
   const [touchCandidate, setTouchCandidate] = useState<PendingSelection | null>(null);
@@ -372,6 +382,33 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       });
     }
 
+    // 切り分け用の計測（2026-08-05・一時的）。?selDebug=1 の時、1回の選択操作の全体像を
+    // まとめて1件送る。**成否に関わらず必ず送る**——「正常な回」との比較が要るため。
+    // 本文は一切含まない（長さ・回数・オフセットのみ）
+    const trace = traceRef.current;
+    traceRef.current = null;
+    lastReleaseAtRef.current = 0;
+    if (isSelectionDebugEnabled() && trace) {
+      Sentry.captureMessage('選択操作の計測（診断）', {
+        level: 'info',
+        extra: {
+          autoScrollDisabled: isAutoScrollDisabled(),
+          durationMs: Date.now() - trace.startedAt,
+          selectionChangeCount: trace.selectionChangeCount,
+          touchMoveCount: trace.touchMoveCount,
+          scrollWriteCount: trace.scrollWriteCount,
+          releaseCount: trace.releaseCount,
+          changeAfterReleaseCount: trace.changeAfterReleaseCount,
+          anchorCollapsedToZeroCount: trace.anchorCollapsedToZeroCount,
+          lastAnchorOffset: trace.lastAnchorOffset,
+          lastFocusOffset: trace.lastFocusOffset,
+          traceMaxLength: trace.maxLength,
+          traceLastLength: trace.lastLength,
+          committedLength: candidate?.text.length ?? 0,
+        },
+      });
+    }
+
     if (!candidate) return;
     // 引用はシート内に再掲するので、本文側の選択はここで解除してよい
     if (Platform.OS === 'web') window.getSelection()?.removeAllRanges();
@@ -448,6 +485,24 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       if (sheetOpenRef.current) return;
 
       const sel = window.getSelection();
+
+      // 切り分け用の計測（2026-08-05・一時的）。本文は一切見ない
+      if (isSelectionDebugEnabled() && sel) {
+        const tr = (traceRef.current ??= createTrace());
+        tr.selectionChangeCount++;
+        if (lastReleaseAtRef.current > 0 && Date.now() - lastReleaseAtRef.current < 2000) {
+          // 指を離した後に来た変化＝ブラウザ側が勝手に選択を作り直している証拠になりうる
+          tr.changeAfterReleaseCount++;
+        }
+        const prevAnchor = tr.lastAnchorOffset;
+        tr.lastAnchorOffset = sel.anchorOffset;
+        tr.lastFocusOffset = sel.focusOffset;
+        if (prevAnchor > 0 && sel.anchorOffset === 0) tr.anchorCollapsedToZeroCount++;
+        const len = sel.toString().length;
+        tr.lastLength = len;
+        tr.maxLength = Math.max(tr.maxLength, len);
+      }
+
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
         // 選択が解除された＝作りかけの候補も捨てる。バーも下げる
         clearCandidate();
@@ -543,13 +598,30 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       setTimeout(() => commitCandidateRef.current(), 0);
     }
 
+    // 計測のみ（2026-08-05・一時的）。挙動には影響しない
+    function onAnyRelease() {
+      if (!isSelectionDebugEnabled()) return;
+      lastReleaseAtRef.current = Date.now();
+      (traceRef.current ??= createTrace()).releaseCount++;
+    }
+    function onAnyTouchMove() {
+      if (!isSelectionDebugEnabled()) return;
+      (traceRef.current ??= createTrace()).touchMoveCount++;
+    }
+
     document.addEventListener('selectionchange', onSelectionChange);
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('pointerup', onPointerUp);
+    document.addEventListener('pointerup', onAnyRelease);
+    document.addEventListener('touchend', onAnyRelease);
+    document.addEventListener('touchmove', onAnyTouchMove);
     return () => {
       document.removeEventListener('selectionchange', onSelectionChange);
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('pointerup', onPointerUp);
+      document.removeEventListener('pointerup', onAnyRelease);
+      document.removeEventListener('touchend', onAnyRelease);
+      document.removeEventListener('touchmove', onAnyTouchMove);
     };
   }, [conversationId, instanceId]);
 
@@ -571,6 +643,10 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   // これ以上スクロールできない／実際にscrollTopが動かなくなった／絶対上限（8秒）。
   useEffect(() => {
     if (Platform.OS !== 'web') return;
+    // 切り分け実験（2026-08-05）：?noAutoScroll=1 のときは一切スクロールさせない。
+    // 「掴み直すと選択が壊れる／繰り返すと効かなくなる」の原因が、選択中にscrollTopを
+    // プログラムから書き換えることにあるのかを、同一ビルドのまま比較するためのスイッチ
+    if (isAutoScrollDisabled()) return;
 
     /** 万一どの停止条件も効かなかった場合の最後の砦 */
     const MAX_DURATION_MS = 8000;
@@ -618,6 +694,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
       const before = container.scrollTop;
       container.scrollTop = before + step;
+      if (isSelectionDebugEnabled()) (traceRef.current ??= createTrace()).scrollWriteCount++;
       // 実際に動かなかった＝端に到達している。回し続けない
       if (container.scrollTop === before) return stop();
 

@@ -450,14 +450,22 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           'data-workspace-instance',
         ) ?? null;
 
-      // 選択が1つのメッセージを越えた場合（2026-08-03）。
+      // 選択が1つのメッセージを越えた、または解決できない場合（2026-08-03・2026-08-05修正）。
       //
       // markerはmessage_idを1つしか持てないため、複数メッセージにまたがるマーカーは
       // データモデル上作れない。以前はここで黙ってreturnしていたため、**候補が
       // 境界を越える直前の値のまま凍結**し、965文字選んでも150文字で保存される、という
       // 静かな欠損になっていた（実機報告）。
       //
-      // 黙って部分保存するのが最も悪い。作れないことをユーザーへ伝えて止める。
+      // 【2026-08-05修正】上の対策には抜け道が残っていた。「このワークスペース内で始まった
+      // 選択がメッセージの外へ伸びた」という1パターンでしか候補をクリアしておらず、
+      // それ以外の理由でmessageElが解決できない場合（掴み直しの瞬間に指がメッセージ間の
+      // 余白など構造的に曖昧な位置へ触れた等）は、今度は**表示中の文字数が凍結**したまま
+      // 更新されない、という形で同じ「静かな停止」が再発していた（実機報告：「縮んだと
+      // いうより、数字が止まった」）。
+      //
+      // 通知するかどうか（本当にメッセージをまたいだと判定できる場合だけ）と、
+      // 候補を凍結させないこと（理由を問わず常に）は、別の話として分離する。
       if (!messageEl || !messageId) {
         const startEl =
           domRange.startContainer.nodeType === Node.TEXT_NODE
@@ -467,14 +475,18 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           (startEl?.closest?.('[data-workspace-instance]') as HTMLElement | null)?.getAttribute(
             'data-workspace-instance',
           ) === instanceId;
-        // このワークスペースの中で始まった選択が、メッセージの外まで伸びた場合だけ知らせる。
-        // 無関係な場所の選択（他インスタンス・シート内など）には反応しない
-        if (startedInThisWorkspace && startEl?.closest?.('[data-message-id]')) {
-          candidateRef.current = null;
-          maxCandidateLengthRef.current = 0;
-          setTouchCandidate(null);
-          setCrossMessage(true);
-        }
+        // 無関係な場所の選択（他インスタンス・シート内など）には反応しない。
+        // このワークスペース内で始まった選択でなければ、通知も候補のクリアも行わない
+        if (!startedInThisWorkspace) return;
+
+        // ここに来た時点で候補は必ずクリアする。表示され続ける文字数が実態と
+        // 食い違ったまま止まることだけは避ける（凍結より「バーが消える」方が安全）
+        candidateRef.current = null;
+        maxCandidateLengthRef.current = 0;
+        setTouchCandidate(null);
+        // 「メッセージをまたいだ」と自信を持って言えるのは、開始点にメッセージの
+        // 手がかりがあった場合だけ。それ以外は原因不明として、誤った理由を出さない
+        setCrossMessage(!!startEl?.closest?.('[data-message-id]'));
         return;
       }
       setCrossMessage(false);

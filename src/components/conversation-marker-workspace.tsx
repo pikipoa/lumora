@@ -36,6 +36,7 @@ import { ThemedText } from '@/components/themed-text';
 import {
   computeAutoScrollStep,
   findScrollableAncestor,
+  getSelectionAnchorRect,
   getSelectionFocusRect,
 } from '@/lib/selectionAutoScroll';
 import { ThemedView } from '@/components/themed-view';
@@ -673,6 +674,9 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
       const rect = getSelectionFocusRect(sel);
       if (!rect) return stop();
+      // アンカー（動かない側）が画面外へ出るとブラウザが選択を壊すため、
+      // その手前でスクロールを止める材料として渡す（2026-08-05の実験で確定）
+      const anchorRect = getSelectionAnchorRect(sel);
 
       const box = container.getBoundingClientRect();
       // startedAtは「連続してスクロールし続けている時間」を表す（端から離れるたびにstop()で
@@ -687,6 +691,8 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           containerBottom: box.bottom,
           canScrollUp: container.scrollTop > 0,
           canScrollDown: container.scrollTop + container.clientHeight < container.scrollHeight - 1,
+          anchorTop: anchorRect?.top,
+          anchorBottom: anchorRect?.bottom,
         },
         msAtEdge,
       );

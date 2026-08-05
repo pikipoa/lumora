@@ -45,6 +45,21 @@ export const MAX_STEP_PX_ACCELERATED = 20;
 /** この時間（ms）留まり続けると、加速が上限に達する */
 export const ACCELERATION_DURATION_MS = 1200;
 
+/**
+ * アンカー側のハンドルを画面内に残すための余白（px）。
+ *
+ * 【なぜ必要か・2026-08-05の切り分け実験で確定】
+ * オートスクロールをOFFにすると10回繰り返しても壊れず、ONだと
+ * 「**ハンドルが画面外に消えると（選択の起点が）上部に飛ぶ**」ことが実機で確認された。
+ * ブラウザは画面外へ出たハンドルの位置を追跡できなくなり、選択のアンカーを先頭へ
+ * 「回復」させてしまう。つまり原因は速度でも状態管理でもなく、
+ * **アンカー側のハンドルが画面外へ出るまでスクロールしてしまうこと**だった。
+ *
+ * この余白の分だけアンカーを画面内に残す。ハンドルの図形は指の位置より下に描画される
+ * ため、テキストの矩形ぴったりではなく少し余裕を持たせる。
+ */
+export const ANCHOR_KEEP_VISIBLE_PX = 44;
+
 export interface EdgeScrollInput {
   /** 選択の「動いている側の先端」の矩形（ビューポート座標） */
   focusTop: number;
@@ -55,6 +70,13 @@ export interface EdgeScrollInput {
   /** これ以上その方向へスクロールできるか */
   canScrollUp: boolean;
   canScrollDown: boolean;
+  /**
+   * 選択の「動かない側（アンカー）」の矩形（ビューポート座標）。
+   * これが画面外へ出るとブラウザが選択を壊すため、出さない範囲までしかスクロールしない。
+   * 取得できない場合はundefinedでよい（その場合は従来どおり制限しない）。
+   */
+  anchorTop?: number;
+  anchorBottom?: number;
 }
 
 /**
@@ -78,7 +100,16 @@ export function computeAutoScrollStep(
   acceleratedStep: number = MAX_STEP_PX_ACCELERATED,
   accelerationDurationMs: number = ACCELERATION_DURATION_MS,
 ): number {
-  const { focusTop, focusBottom, containerTop, containerBottom, canScrollUp, canScrollDown } = input;
+  const {
+    focusTop,
+    focusBottom,
+    containerTop,
+    containerBottom,
+    canScrollUp,
+    canScrollDown,
+    anchorTop,
+    anchorBottom,
+  } = input;
 
   const accelerationRatio = Math.max(0, Math.min(1, msAtEdge / accelerationDurationMs));
   const maxStep = baseStep + (acceleratedStep - baseStep) * accelerationRatio;
@@ -86,16 +117,38 @@ export function computeAutoScrollStep(
   const distanceFromTop = focusTop - containerTop;
   const distanceFromBottom = containerBottom - focusBottom;
 
+  /**
+   * アンカーを画面内に残せる範囲へスクロール量を切り詰める（2026-08-05）。
+   * 下へスクロールするとアンカーは上へ動くので、アンカーの上端が
+   * containerTop + ANCHOR_KEEP_VISIBLE_PX を割り込む手前で止める（上方向はその逆）。
+   * これを超えるとブラウザがアンカーを見失い、選択の起点が先頭へ飛ぶ。
+   */
+  const clampToKeepAnchorVisible = (step: number): number => {
+    if (anchorTop === undefined || anchorBottom === undefined) return step;
+    if (step > 0) {
+      // 下へスクロール＝アンカーは上へ移動する。上端の余白を使い切るまで
+      const room = anchorTop - (containerTop + ANCHOR_KEEP_VISIBLE_PX);
+      return Math.max(0, Math.min(step, Math.floor(room)));
+    }
+    if (step < 0) {
+      // 上へスクロール＝アンカーは下へ移動する。下端の余白を使い切るまで。
+      // `+ 0` は -0 を 0 に正規化するため（-0でも比較は通るが、返り値に混ぜない）
+      const room = containerBottom - ANCHOR_KEEP_VISIBLE_PX - anchorBottom;
+      return Math.min(0, Math.max(step, -Math.floor(room))) + 0;
+    }
+    return 0;
+  };
+
   // 上端が優先。上下どちらも閾値内になるのはコンテナが極端に低い場合で、
   // その時は上へ寄せた方が「読み進めている位置」を見失いにくい
   if (distanceFromTop < threshold && canScrollUp) {
     // 端を越えて外側にある場合（負の距離）は最大速度
     const depth = Math.max(0, Math.min(threshold, threshold - distanceFromTop));
-    return -Math.ceil((depth / threshold) * maxStep);
+    return clampToKeepAnchorVisible(-Math.ceil((depth / threshold) * maxStep));
   }
   if (distanceFromBottom < threshold && canScrollDown) {
     const depth = Math.max(0, Math.min(threshold, threshold - distanceFromBottom));
-    return Math.ceil((depth / threshold) * maxStep);
+    return clampToKeepAnchorVisible(Math.ceil((depth / threshold) * maxStep));
   }
   return 0;
 }
@@ -138,12 +191,30 @@ export function findScrollableAncestor(start: Element | null): HTMLElement | nul
  */
 export function getSelectionFocusRect(sel: Selection): DOMRect | null {
   if (!sel.focusNode || sel.rangeCount === 0) return null;
+  return rectAtBoundary(sel.focusNode, sel.focusOffset);
+}
 
-  const tryRectAt = (node: Node, offset: number): DOMRect | null => {
+/**
+ * 選択の「動かない側（アンカー）」の矩形を返す。
+ * これが画面外へ出るとブラウザが選択を壊すため、スクロール量の制限に使う
+ * （2026-08-05の切り分け実験で確定。ANCHOR_KEEP_VISIBLE_PXのコメント参照）。
+ */
+export function getSelectionAnchorRect(sel: Selection): DOMRect | null {
+  if (!sel.anchorNode || sel.rangeCount === 0) return null;
+  return rectAtBoundary(sel.anchorNode, sel.anchorOffset);
+}
+
+/**
+ * 境界点（node, offset）の矩形を返す。潰れていた場合は1文字分ずらして取り直す。
+ * **選択全体の矩形では代用しない**——複数行の選択では「今その端がある位置」ではなく
+ * 「最も遠い場所」を指してしまい、誤った距離判定から暴走を招く（2026-08-05に修正済み）。
+ */
+function rectAtBoundary(node: Node, offset: number): DOMRect | null {
+  const tryRectAt = (n: Node, o: number): DOMRect | null => {
     const caret = document.createRange();
     try {
-      caret.setStart(node, offset);
-      caret.setEnd(node, offset);
+      caret.setStart(n, o);
+      caret.setEnd(n, o);
     } catch {
       return null;
     }
@@ -151,18 +222,16 @@ export function getSelectionFocusRect(sel: Selection): DOMRect | null {
     return rect.height > 0 ? rect : null;
   };
 
-  const exact = tryRectAt(sel.focusNode, sel.focusOffset);
+  const exact = tryRectAt(node, offset);
   if (exact) return exact;
 
-  // 潰れていた場合、1文字分ずらして取り直す（前後どちらか取れた方でよい）。
-  // 選択全体では代用しない——上のコメントのとおり誤った距離判定を招くため
-  if (sel.focusOffset > 0) {
-    const before = tryRectAt(sel.focusNode, sel.focusOffset - 1);
+  if (offset > 0) {
+    const before = tryRectAt(node, offset - 1);
     if (before) return before;
   }
-  const len = sel.focusNode.textContent?.length ?? 0;
-  if (sel.focusOffset < len) {
-    const after = tryRectAt(sel.focusNode, sel.focusOffset + 1);
+  const len = node.textContent?.length ?? 0;
+  if (offset < len) {
+    const after = tryRectAt(node, offset + 1);
     if (after) return after;
   }
   return null;

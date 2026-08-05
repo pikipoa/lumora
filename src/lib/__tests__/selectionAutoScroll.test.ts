@@ -1,5 +1,6 @@
 import {
   ACCELERATION_DURATION_MS,
+  ANCHOR_KEEP_VISIBLE_PX,
   computeAutoScrollStep,
   EDGE_THRESHOLD_PX,
   MAX_STEP_PX,
@@ -115,5 +116,74 @@ describe('computeAutoScrollStep', () => {
   it('留まる時間が負でも穏やかな速度を下回らない（時計のずれ等の防御）', () => {
     const step = computeAutoScrollStep(input({ focusTop: 800, focusBottom: 820 }), -500);
     expect(step).toBe(MAX_STEP_PX);
+  });
+
+  // 2026-08-05の切り分け実験で確定した本命の防御。
+  // アンカーが画面外へ出るとブラウザが選択の起点を先頭へ飛ばしてしまう
+  describe('アンカーを画面内に残す制限', () => {
+    it('アンカーに余裕があるうちは通常どおりスクロールする', () => {
+      const step = computeAutoScrollStep(
+        input({ focusTop: 690, focusBottom: 698, anchorTop: 400, anchorBottom: 420 }),
+        ACCELERATION_DURATION_MS,
+      );
+      expect(step).toBe(MAX_STEP_PX_ACCELERATED);
+    });
+
+    it('下スクロール中、アンカーが上端の余白に達したら止まる', () => {
+      // anchorTop が containerTop + ANCHOR_KEEP_VISIBLE_PX とちょうど同じ＝もう余地なし
+      const step = computeAutoScrollStep(
+        input({
+          focusTop: 690,
+          focusBottom: 698,
+          anchorTop: 100 + ANCHOR_KEEP_VISIBLE_PX,
+          anchorBottom: 100 + ANCHOR_KEEP_VISIBLE_PX + 20,
+        }),
+        ACCELERATION_DURATION_MS,
+      );
+      expect(step).toBe(0);
+    });
+
+    it('下スクロール中、残り余地がstepより小さければその分だけ動く', () => {
+      // 余地は3pxしかない → 加速していても3pxに切り詰められる
+      const step = computeAutoScrollStep(
+        input({
+          focusTop: 690,
+          focusBottom: 698,
+          anchorTop: 100 + ANCHOR_KEEP_VISIBLE_PX + 3,
+          anchorBottom: 100 + ANCHOR_KEEP_VISIBLE_PX + 23,
+        }),
+        ACCELERATION_DURATION_MS,
+      );
+      expect(step).toBe(3);
+    });
+
+    it('アンカーが既に画面外にある場合は下へスクロールしない（負の余地を0に丸める）', () => {
+      const step = computeAutoScrollStep(
+        input({ focusTop: 690, focusBottom: 698, anchorTop: -200, anchorBottom: -180 }),
+        ACCELERATION_DURATION_MS,
+      );
+      expect(step).toBe(0);
+    });
+
+    it('上スクロール中、アンカーが下端の余白に達したら止まる', () => {
+      const step = computeAutoScrollStep(
+        input({
+          focusTop: 110,
+          focusBottom: 130,
+          anchorTop: 700 - ANCHOR_KEEP_VISIBLE_PX - 20,
+          anchorBottom: 700 - ANCHOR_KEEP_VISIBLE_PX,
+        }),
+        ACCELERATION_DURATION_MS,
+      );
+      expect(step).toBe(0);
+    });
+
+    it('アンカーが渡されない場合は制限しない（後方互換）', () => {
+      const step = computeAutoScrollStep(
+        input({ focusTop: 800, focusBottom: 820 }),
+        ACCELERATION_DURATION_MS,
+      );
+      expect(step).toBe(MAX_STEP_PX_ACCELERATED);
+    });
   });
 });

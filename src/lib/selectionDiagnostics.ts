@@ -68,6 +68,26 @@ export interface SelectionTrace {
   lastAnchorNodeName: string;
   /** 直近のanchorNodeが data-message-id の内側にあったか（外なら本文の外へ出ている） */
   lastAnchorInsideMessage: boolean;
+
+  /**
+   * anchorが「どこまで」飛んだかの分類（2026-08-06）。
+   * 1段せり上がっただけ（DOM削除のカスケード）なのか、文書ルートまで完全に失われたのか
+   * で機序が変わるため、推測せず値で分ける。
+   *   'text-in-message'   … 正常（本文内のテキストノード）
+   *   'element-in-message'… 本文内だが要素ノード（1段せり上がった）
+   *   'in-workspace'      … 本文の外だがワークスペース内
+   *   'document-root'     … BODY/HTML（完全に失われて初期値に落ちた）
+   *   'detached'          … isConnected=false（DOMから切り離されている）
+   *   'other'             … 上記以外
+   */
+  lastAnchorPlacement: string;
+  /** anchorがdocument-rootまで飛んだ回数（最も重い症状の直接カウント） */
+  anchorAtDocumentRootCount: number;
+  /**
+   * 右ハンドル（focus）が下方向へ動いていた時に限った、anchorの異常回数。
+   * 実機で確認された非対称（右を下へ引いた時だけ壊れる）を数値で裏付ける
+   */
+  anchorBrokeWhileFocusMovingDownCount: number;
 }
 
 export function createTrace(): SelectionTrace {
@@ -87,5 +107,29 @@ export function createTrace(): SelectionTrace {
     anchorDisconnectedCount: 0,
     lastAnchorNodeName: '',
     lastAnchorInsideMessage: true,
+    lastAnchorPlacement: '',
+    anchorAtDocumentRootCount: 0,
+    anchorBrokeWhileFocusMovingDownCount: 0,
   };
+}
+
+/**
+ * anchorがどこにいるかを分類する（2026-08-06）。
+ * 「1段せり上がった」のか「文書ルートまで完全に失われた」のかで機序が変わるため、
+ * 推測せず値で分ける。DOMに触れるのでこの関数はユニットテスト対象外。
+ */
+export function classifyAnchorPlacement(node: Node | null): string {
+  if (!node) return 'none';
+  if (!node.isConnected) return 'detached';
+  const name = node.nodeName;
+  if (name === 'BODY' || name === 'HTML' || node.nodeType === Node.DOCUMENT_NODE) {
+    return 'document-root';
+  }
+  const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element);
+  if (!el?.closest) return 'other';
+  if (el.closest('[data-message-id]')) {
+    return node.nodeType === Node.TEXT_NODE ? 'text-in-message' : 'element-in-message';
+  }
+  if (el.closest('[data-workspace-instance]')) return 'in-workspace';
+  return 'other';
 }

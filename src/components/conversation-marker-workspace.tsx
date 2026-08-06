@@ -47,6 +47,7 @@ import { rangeToOffsets } from '@/lib/domSelection';
 import { computeSegments, extractContext, resolveMarkerPosition, type MarkerLayer } from '@/lib/markerLayout';
 import { getRecentRealmIds, markRealmUsed, sortByRecency } from '@/lib/recentRealms';
 import {
+  classifyAnchorPlacement,
   createTrace,
   isAutoScrollDisabled,
   isSelectionDebugEnabled,
@@ -406,6 +407,10 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           anchorDisconnectedCount: trace.anchorDisconnectedCount,
           lastAnchorNodeName: trace.lastAnchorNodeName,
           lastAnchorInsideMessage: trace.lastAnchorInsideMessage,
+          // 「1段せり上がった」か「文書ルートまで失われた」かの判別
+          lastAnchorPlacement: trace.lastAnchorPlacement,
+          anchorAtDocumentRootCount: trace.anchorAtDocumentRootCount,
+          anchorBrokeWhileFocusMovingDownCount: trace.anchorBrokeWhileFocusMovingDownCount,
           lastAnchorOffset: trace.lastAnchorOffset,
           lastFocusOffset: trace.lastFocusOffset,
           traceMaxLength: trace.maxLength,
@@ -501,6 +506,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           tr.changeAfterReleaseCount++;
         }
         const prevAnchor = tr.lastAnchorOffset;
+        const prevFocusOffset = tr.lastFocusOffset;
         tr.lastAnchorOffset = sel.anchorOffset;
         tr.lastFocusOffset = sel.focusOffset;
         if (prevAnchor > 0 && sel.anchorOffset === 0) tr.anchorCollapsedToZeroCount++;
@@ -516,6 +522,17 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           if (!an.isConnected) tr.anchorDisconnectedCount++;
           const anEl = an.nodeType === Node.TEXT_NODE ? an.parentElement : (an as Element);
           tr.lastAnchorInsideMessage = !!anEl?.closest?.('[data-message-id]');
+
+          // 「1段せり上がった」のか「文書ルートまで完全に失われた」のかを値で分ける
+          const placement = classifyAnchorPlacement(an);
+          tr.lastAnchorPlacement = placement;
+          if (placement === 'document-root') tr.anchorAtDocumentRootCount++;
+
+          // 実機で確認された非対称（右ハンドルを下へ引いた時だけ壊れる）の裏付け。
+          // focusOffsetが増えている＝右へ／下へ伸ばしている最中とみなす
+          const anchorIsBroken = placement !== 'text-in-message';
+          const focusMovingForward = sel.focusOffset > prevFocusOffset;
+          if (anchorIsBroken && focusMovingForward) tr.anchorBrokeWhileFocusMovingDownCount++;
         }
         const len = sel.toString().length;
         tr.lastLength = len;

@@ -51,6 +51,7 @@ import {
   createTrace,
   formatTraceForScreen,
   isAutoScrollDisabled,
+  isObserveOnlyMode,
   isSelectionDebugEnabled,
   type SelectionTrace,
 } from '@/lib/selectionDiagnostics';
@@ -787,10 +788,14 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       if (step === 0) return stop();
 
       const before = container.scrollTop;
-      container.scrollTop = before + step;
+      // Mode 1「観測のみ」（2026-08-06）：ここだけを止める。イベント登録・step計算・RAFは
+      // そのまま動かし、「実際の書き込み」が症状の必要条件かどうかを分ける
+      if (!isObserveOnlyMode()) container.scrollTop = before + step;
       if (isSelectionDebugEnabled()) (traceRef.current ??= createTrace()).scrollWriteCount++;
-      // 実際に動かなかった＝端に到達している。回し続けない
-      if (container.scrollTop === before) return stop();
+      // 実際に動かなかった＝端に到達している。回し続けない。
+      // ただし観測のみモードでは書いていないので当然動かない——ここで止めると
+      // ループが1フレームで終わってしまい「そのまま動かす」実験にならない
+      if (!isObserveOnlyMode() && container.scrollTop === before) return stop();
 
       rafId = requestAnimationFrame(tick);
     };
@@ -825,17 +830,27 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       }
     }
 
+    // 停止経路。二重起動は `if (rafId == null)` で防いでいるが、停止の取りこぼしは
+    // 「指を離したのに回り続ける」を生むため、離脱系のイベントも塞いでおく（2026-08-06追加）。
+    // lostpointercapture … ドラッグ中にポインタ捕捉を奪われた場合
+    // visibilitychange / pagehide … タブ切替・バックグラウンド化でイベントが途絶える場合
     document.addEventListener('selectionchange', onSelectionChangeForScroll);
     document.addEventListener('pointerup', stop);
     document.addEventListener('pointercancel', stop);
+    document.addEventListener('lostpointercapture', stop);
     document.addEventListener('touchend', stop);
     document.addEventListener('touchcancel', stop);
+    document.addEventListener('visibilitychange', stop);
+    window.addEventListener('pagehide', stop);
     return () => {
       document.removeEventListener('selectionchange', onSelectionChangeForScroll);
       document.removeEventListener('pointerup', stop);
       document.removeEventListener('pointercancel', stop);
+      document.removeEventListener('lostpointercapture', stop);
       document.removeEventListener('touchend', stop);
       document.removeEventListener('touchcancel', stop);
+      document.removeEventListener('visibilitychange', stop);
+      window.removeEventListener('pagehide', stop);
       stop();
     };
   }, [instanceId]);

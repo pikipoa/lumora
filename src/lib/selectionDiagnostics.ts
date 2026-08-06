@@ -23,9 +23,24 @@ function hasFlag(name: string): boolean {
   }
 }
 
-/** オートスクロール（scrollTopの書き換え）を無効化するか */
+/** オートスクロール（イベント登録・step計算・RAFを含む全て）を無効化するか */
 export function isAutoScrollDisabled(): boolean {
   return hasFlag('noAutoScroll');
+}
+
+/**
+ * Mode 1「観測のみ」（2026-08-06）。
+ *
+ * イベント登録・step計算・RAFループはそのまま動かし、**scrollTopへの書き込みだけ**を
+ * 止める。?noAutoScroll=1 は仕組みごと止めるため「オートスクロールの存在」が
+ * 必要条件かどうかしか分からないが、こちらは「**実際の書き込み**が必要条件か」を分ける。
+ *
+ *   症状が消える … 書き込み、または書き込みが誘発するブラウザ挙動が原因
+ *   症状が残る   … イベント層・状態更新・ネイティブ選択側が原因
+ *   スクロールは動かないのに選択だけ飛ぶ … スクロール非依存の枝が実証される
+ */
+export function isObserveOnlyMode(): boolean {
+  return hasFlag('observeOnly');
 }
 
 /** 選択の計測を有効にするか */

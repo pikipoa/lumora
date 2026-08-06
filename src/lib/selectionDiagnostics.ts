@@ -105,6 +105,16 @@ export interface SelectionTrace {
    * 「見えている左ハンドルは、もはやanchorではなくfocus」を数値で確かめる
    */
   focusOvertookAnchorCount: number;
+
+  /**
+   * この選択で何回目のドラッグか（2026-08-06）。指を離すたびに増える。
+   * 「掴み直しが必要」は未説明の唯一の条件なので、1回目と2回目以降で
+   * focusOvertookAnchorCount に差が出るかを見られるようにする。
+   * データが出てから足すと、再現をもう一度お願いすることになるため先に入れる。
+   */
+  dragSessionIndex: number;
+  /** ドラッグ2回目以降に限った追い越し回数（掴み直し特有かどうかの判別） */
+  focusOvertookAfterRegrabCount: number;
   /**
    * 右ハンドル（focus）が下方向へ動いていた時に限った、anchorの異常回数。
    * 実機で確認された非対称（右を下へ引いた時だけ壊れる）を数値で裏付ける
@@ -139,7 +149,30 @@ export function createTrace(): SelectionTrace {
     scrollTopReachedZeroCount: 0,
     lastAnchorTop: -99999,
     focusOvertookAnchorCount: 0,
+    dragSessionIndex: 1,
+    focusOvertookAfterRegrabCount: 0,
   };
+}
+
+/**
+ * 画面へ直接出す1行サマリ（2026-08-06）。
+ *
+ * 送信をコミット経路に依存させると、**壊れた回に限って送れない**（選択が飛んだ状態で
+ * シートが開かない／確定が失敗する等）。スクリーンショット1枚で判定できるよう、
+ * Sentryにもコミットにも依存しない表示を用意する。
+ */
+export function formatTraceForScreen(t: SelectionTrace): string {
+  const parts = [
+    `drag#${t.dragSessionIndex}`,
+    `over=${t.focusOvertookAnchorCount}`,
+    `overRe=${t.focusOvertookAfterRegrabCount}`,
+    `st0=${t.scrollTopReachedZeroCount}`,
+    `minSt=${t.minScrollTop === Number.MAX_SAFE_INTEGER ? '-' : t.minScrollTop}`,
+    `step=${t.minStep}/${t.maxStep}`,
+    `anch=${t.lastAnchorPlacement || '-'}`,
+    `len=${t.lastLength}`,
+  ];
+  return parts.join(' ');
 }
 
 /**

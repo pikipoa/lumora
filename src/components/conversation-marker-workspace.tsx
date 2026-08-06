@@ -49,6 +49,7 @@ import { getRecentRealmIds, markRealmUsed, sortByRecency } from '@/lib/recentRea
 import {
   classifyAnchorPlacement,
   createTrace,
+  formatTraceForScreen,
   isAutoScrollDisabled,
   isSelectionDebugEnabled,
   type SelectionTrace,
@@ -203,6 +204,9 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   const traceRef = useRef<SelectionTrace | null>(null);
   /** 直近で指を離した時刻。「離した後にブラウザが勝手に選択を変えたか」の判定に使う */
   const lastReleaseAtRef = useRef(0);
+  /** 計測の画面表示（?selDebug=1のみ）。送信をコミット経路に依存させると、
+   *  壊れた回に限って送れない可能性があるため、スクリーンショットで判定できるようにする */
+  const [traceReadout, setTraceReadout] = useState('');
   /** タッチ時に「この範囲にマーカー」バーを出すかどうか（2026-08-02）。
    *  refと違って再描画が要るのでstateで持つ。中身はrefと同じ候補 */
   const [touchCandidate, setTouchCandidate] = useState<PendingSelection | null>(null);
@@ -419,6 +423,8 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           scrollTopReachedZeroCount: trace.scrollTopReachedZeroCount,
           lastAnchorTop: trace.lastAnchorTop,
           focusOvertookAnchorCount: trace.focusOvertookAnchorCount,
+          dragSessionIndex: trace.dragSessionIndex,
+          focusOvertookAfterRegrabCount: trace.focusOvertookAfterRegrabCount,
           lastAnchorOffset: trace.lastAnchorOffset,
           lastFocusOffset: trace.lastFocusOffset,
           traceMaxLength: trace.maxLength,
@@ -545,18 +551,26 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           // focusがanchorを追い越したか（Rangeのstart側がfocusになった）。
           // 「見えている左ハンドルは、もはやanchorではなくfocus」の検証。
           // compareDocumentPositionで文書順を直接比べる（DOM_POSITION_PRECEDING=2）
+          let overtook = false;
           if (sel.focusNode && sel.focusNode !== an) {
-            const focusPrecedesAnchor =
+            overtook =
               (an.compareDocumentPosition(sel.focusNode) & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
-            if (focusPrecedesAnchor) tr.focusOvertookAnchorCount++;
           } else if (sel.focusNode === an && sel.focusOffset < sel.anchorOffset) {
             // 同一ノード内での追い越し
+            overtook = true;
+          }
+          if (overtook) {
             tr.focusOvertookAnchorCount++;
+            // 「掴み直しが必要」という未説明の条件を切り分ける。2回目以降だけで起きるなら
+            // それが機序の核心になる
+            if (tr.dragSessionIndex > 1) tr.focusOvertookAfterRegrabCount++;
           }
         }
         const len = sel.toString().length;
         tr.lastLength = len;
         tr.maxLength = Math.max(tr.maxLength, len);
+        // 画面へ即時反映する（Sentry・コミット経路に依存せず判定できるように）
+        setTraceReadout(formatTraceForScreen(tr));
       }
 
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
@@ -658,7 +672,12 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     function onAnyRelease() {
       if (!isSelectionDebugEnabled()) return;
       lastReleaseAtRef.current = Date.now();
-      (traceRef.current ??= createTrace()).releaseCount++;
+      const tr = (traceRef.current ??= createTrace());
+      tr.releaseCount++;
+      // 指を離した＝次に触れば「掴み直し」。ドラッグ回数を進める
+      tr.dragSessionIndex++;
+      // 画面表示を更新する（描画のためstateへ写す）
+      setTraceReadout(formatTraceForScreen(tr));
     }
     function onAnyTouchMove() {
       if (!isSelectionDebugEnabled()) return;
@@ -1418,6 +1437,22 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
     </Animated.View>
   ) : null;
 
+  // 計測の画面表示（?selDebug=1のみ・一時的）。画面最上部に固定し、選択が壊れた状態でも
+  // 必ず読めるようにする。userSelect:'none'で本文の選択に巻き込まれないようにする
+  const debugReadout =
+    isSelectionDebugEnabled() && traceReadout ? (
+      <View style={styles.debugReadout} testID="selection-debug-readout">
+        <ThemedText style={styles.debugReadoutText}>{traceReadout}</ThemedText>
+      </View>
+    ) : null;
+
+  const debugReadoutPortal =
+    Platform.OS !== 'web'
+      ? debugReadout
+      : debugReadout && typeof document !== 'undefined' && isFocused
+        ? createPortal(debugReadout, document.body)
+        : null;
+
   // sheetPortalと同じ理由でisFocusedもゲートする
   const touchBarPortal =
     Platform.OS !== 'web'
@@ -1551,6 +1586,7 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
       {touchBarPortal}
       {sheetPortal}
+      {debugReadoutPortal}
     </>
   );
 }
@@ -1609,6 +1645,19 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   markBarLabel: { fontWeight: '600' },
+  // 計測の画面表示（?selDebug=1のみ・一時的）。原因確定後に削除する
+  debugReadout: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#000000CC',
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.two,
+    zIndex: 200,
+    userSelect: 'none',
+  } as object,
+  debugReadoutText: { color: '#FFFFFF', fontSize: 11 },
   /** またがっている旨の案内。確定ボタンと同じ位置に出すが、押すものではないので角丸は控えめ */
   markBarNotice: {
     paddingVertical: Spacing.three,

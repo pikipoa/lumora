@@ -83,6 +83,28 @@ export interface SelectionTrace {
   lastAnchorPlacement: string;
   /** anchorがdocument-rootまで飛んだ回数（最も重い症状の直接カウント） */
   anchorAtDocumentRootCount: number;
+
+  // --- オートスクロールの実挙動（2026-08-06追加） ---
+  // 「anchorは壊れていないが、focusがanchorを追い越して文書先頭まで回り込んだ」という
+  // 見立てを検証する。この場合anchorの分類は正常（text-in-message）を返すため、
+  // 分類だけ見ていると偽陰性になる。scrollTopとstepの実値で判定する。
+  /** autoScrollが返したstepの最小値（負なら上方向。符号の異常を直接見る） */
+  minStep: number;
+  /** autoScrollが返したstepの最大値 */
+  maxStep: number;
+  /** スクロール中に観測したscrollTopの最小値（0まで落ちていれば先頭まで巻き戻っている） */
+  minScrollTop: number;
+  /** 最後に観測したscrollTop */
+  lastScrollTop: number;
+  /** scrollTopが0に到達した回数 */
+  scrollTopReachedZeroCount: number;
+  /** clampに渡したanchorTopの最新の生値（undefinedなら-99999） */
+  lastAnchorTop: number;
+  /**
+   * focusがanchorを追い越した回数（＝Rangeのstart側がfocusになった）。
+   * 「見えている左ハンドルは、もはやanchorではなくfocus」を数値で確かめる
+   */
+  focusOvertookAnchorCount: number;
   /**
    * 右ハンドル（focus）が下方向へ動いていた時に限った、anchorの異常回数。
    * 実機で確認された非対称（右を下へ引いた時だけ壊れる）を数値で裏付ける
@@ -110,6 +132,13 @@ export function createTrace(): SelectionTrace {
     lastAnchorPlacement: '',
     anchorAtDocumentRootCount: 0,
     anchorBrokeWhileFocusMovingDownCount: 0,
+    minStep: 0,
+    maxStep: 0,
+    minScrollTop: Number.MAX_SAFE_INTEGER,
+    lastScrollTop: -1,
+    scrollTopReachedZeroCount: 0,
+    lastAnchorTop: -99999,
+    focusOvertookAnchorCount: 0,
   };
 }
 

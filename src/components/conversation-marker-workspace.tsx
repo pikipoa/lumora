@@ -411,6 +411,14 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           lastAnchorPlacement: trace.lastAnchorPlacement,
           anchorAtDocumentRootCount: trace.anchorAtDocumentRootCount,
           anchorBrokeWhileFocusMovingDownCount: trace.anchorBrokeWhileFocusMovingDownCount,
+          // オートスクロールの実挙動（stepの符号・scrollTopの推移・追い越しの有無）
+          minStep: trace.minStep,
+          maxStepObserved: trace.maxStep,
+          minScrollTop: trace.minScrollTop === Number.MAX_SAFE_INTEGER ? -1 : trace.minScrollTop,
+          lastScrollTop: trace.lastScrollTop,
+          scrollTopReachedZeroCount: trace.scrollTopReachedZeroCount,
+          lastAnchorTop: trace.lastAnchorTop,
+          focusOvertookAnchorCount: trace.focusOvertookAnchorCount,
           lastAnchorOffset: trace.lastAnchorOffset,
           lastFocusOffset: trace.lastFocusOffset,
           traceMaxLength: trace.maxLength,
@@ -533,6 +541,18 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
           const anchorIsBroken = placement !== 'text-in-message';
           const focusMovingForward = sel.focusOffset > prevFocusOffset;
           if (anchorIsBroken && focusMovingForward) tr.anchorBrokeWhileFocusMovingDownCount++;
+
+          // focusがanchorを追い越したか（Rangeのstart側がfocusになった）。
+          // 「見えている左ハンドルは、もはやanchorではなくfocus」の検証。
+          // compareDocumentPositionで文書順を直接比べる（DOM_POSITION_PRECEDING=2）
+          if (sel.focusNode && sel.focusNode !== an) {
+            const focusPrecedesAnchor =
+              (an.compareDocumentPosition(sel.focusNode) & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
+            if (focusPrecedesAnchor) tr.focusOvertookAnchorCount++;
+          } else if (sel.focusNode === an && sel.focusOffset < sel.anchorOffset) {
+            // 同一ノード内での追い越し
+            tr.focusOvertookAnchorCount++;
+          }
         }
         const len = sel.toString().length;
         tr.lastLength = len;
@@ -731,6 +751,20 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         },
         msAtEdge,
       );
+      // 計測（2026-08-06）：stepの符号とscrollTopの推移を実値で記録する。
+      // 「anchorは壊れず、focusがanchorを追い越して文書先頭まで回り込む」という筋では
+      // anchorの分類は正常を返すため、分類だけでは偽陰性になる
+      if (isSelectionDebugEnabled()) {
+        const tr = (traceRef.current ??= createTrace());
+        tr.minStep = Math.min(tr.minStep, step);
+        tr.maxStep = Math.max(tr.maxStep, step);
+        tr.lastAnchorTop = anchorRect ? Math.round(anchorRect.top) : -99999;
+        const st = container.scrollTop;
+        tr.minScrollTop = Math.min(tr.minScrollTop, st);
+        tr.lastScrollTop = st;
+        if (st === 0) tr.scrollTopReachedZeroCount++;
+      }
+
       if (step === 0) return stop();
 
       const before = container.scrollTop;

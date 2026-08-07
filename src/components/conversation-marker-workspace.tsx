@@ -53,6 +53,8 @@ import {
   isAutoScrollDisabled,
   isObserveOnlyMode,
   isRectReadDisabled,
+  isScrollerSearchCached,
+  isScrollHandlerDisabled,
   isSelectionDebugEnabled,
   type SelectionTrace,
 } from '@/lib/selectionDiagnostics';
@@ -810,7 +812,15 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       rafId = requestAnimationFrame(tick);
     };
 
+    /**
+     * findScrollableAncestor をマウント後1度だけに減らす実験用のキャッシュ（2026-08-07）。
+     * `?cacheScroller=1` のときだけ使う。詳細は selectionDiagnostics.ts の isScrollerSearchCached
+     */
+    let cachedScroller: HTMLElement | null = null;
+
     function onSelectionChangeForScroll() {
+      // L1bの切り分け（2026-08-07）：登録は残したまま本体だけを実行しない
+      if (isScrollHandlerDisabled()) return;
       if (sheetOpenRef.current) return;
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return stop();
@@ -830,7 +840,11 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       );
       if (owner !== instanceId) return stop();
 
-      const container = findScrollableAncestor(anchor);
+      // `?cacheScroller=1`：祖先を遡る getComputedStyle / scrollHeight の読み取り（＝強制レイアウト）を
+      // 選択イベントの経路から外し、初回1度だけに減らす。ハンドラの他の部分は動かしたまま
+      const container = isScrollerSearchCached()
+        ? (cachedScroller ??= findScrollableAncestor(anchor))
+        : findScrollableAncestor(anchor);
       if (!container) return stop();
 
       target = container;

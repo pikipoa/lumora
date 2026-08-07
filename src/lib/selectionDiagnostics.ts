@@ -65,6 +65,42 @@ export function isRectReadDisabled(): boolean {
   return hasFlag('noRectRead');
 }
 
+/**
+ * L1b の切り分け（2026-08-07）。
+ *
+ * 【ここまでで消えたもの】
+ * L2（RAF稼働量）とL3（tick内のrect読み取り）は、症状と相関しないことが実機で確定した
+ *   observeOnly … anchorが画面外だと step===0 で tick は即停止する＝L2はほぼ動かない → 飛ぶ
+ *   noRectRead  … L3を止めてRAFは回り続ける＝L2は最大に動く                     → 飛ぶ
+ * L1a（selectionchangeリスナーが登録されていること自体）も消えた。確定ロジック側の効果が
+ * 常時 selectionchange を登録しており、それは noAutoScroll=1（正常）でも登録されたままのため。
+ * オートスクロール効果が新規に足すイベント種別（pointercancel / lostpointercapture /
+ * touchcancel / visibilitychange / pagehide）のハンドラは cancelAnimationFrame のみで、
+ * 選択を壊す余地がない。
+ *
+ * 【残ったもの】
+ * onSelectionChangeForScroll の**本体が実行されること**（L1b）。中身は安価なDOM走査と、
+ * findScrollableAncestor による getComputedStyle / scrollHeight / clientHeight の読み取り
+ * ——後者は getBoundingClientRect と同じく**強制レイアウト**を発生させる。
+ *
+ * 症状は「anchorが画面外の状態でハンドルに触れる」だけで単発で起き、スクロール位置は
+ * 変化せずRange境界だけが移動する。よって見るべきは、選択イベントの最中に走る同期レイアウト。
+ */
+
+/** ハンドラ本体を丸ごと実行しない（リスナー登録は残す）。L1b全体の有無を見る */
+export function isScrollHandlerDisabled(): boolean {
+  return hasFlag('noScrollHandler');
+}
+
+/**
+ * findScrollableAncestor（＝祖先を遡る getComputedStyle / scrollHeight 読み取り）を
+ * マウント後の初回1度だけに減らす。ハンドラ本体の他の部分は動かしたまま、
+ * **強制レイアウトだけ**を選択イベントの経路から外す
+ */
+export function isScrollerSearchCached(): boolean {
+  return hasFlag('cacheScroller');
+}
+
 /** 選択の計測を有効にするか */
 export function isSelectionDebugEnabled(): boolean {
   return hasFlag('selDebug');

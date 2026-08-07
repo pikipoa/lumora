@@ -52,6 +52,7 @@ import {
   formatTraceForScreen,
   isAutoScrollDisabled,
   isObserveOnlyMode,
+  isRectReadDisabled,
   isSelectionDebugEnabled,
   type SelectionTrace,
 } from '@/lib/selectionDiagnostics';
@@ -746,6 +747,15 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
 
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return stop();
+
+      // Mode 2「計測読み取りなし」（2026-08-07）：イベント登録とRAFは回したまま、
+      // 毎フレームのRange生成・getBoundingClientRectだけを止める。
+      // ネイティブがハンドルを追跡している最中の強制レイアウト読み取りが関与するかを分ける
+      // （詳細：src/lib/selectionDiagnostics.ts の isRectReadDisabled）
+      if (isRectReadDisabled()) {
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
 
       const rect = getSelectionFocusRect(sel);
       if (!rect) return stop();

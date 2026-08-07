@@ -43,6 +43,28 @@ export function isObserveOnlyMode(): boolean {
   return hasFlag('observeOnly');
 }
 
+/**
+ * Mode 2「計測読み取りなし」（2026-08-07）。
+ *
+ * 【なぜ必要になったか】
+ * `?noAutoScroll=1` は効果全体をreturnで飛ばすため、`?observeOnly=1` との差は
+ * 「scrollTopを書いたかどうか」だけではない。observeOnlyでは次の3層が動いたままだった：
+ *   L1 イベント登録（selectionchange＋停止系）
+ *   L2 RAFループ（60fps）
+ *   L3 **毎フレームのRange生成 + getBoundingClientRect**（focus/anchorの2境界、
+ *      潰れた場合の取り直しを含めて最大6 Range/フレーム ≒ 360 Range/秒）
+ *
+ * よって「observeOnlyでも症状が残る」から言えるのは「書き込みは必要条件ではない」までで、
+ * 「アプリ側の要因が消えた」ではない。このフラグはL1・L2を残したままL3だけを止め、
+ * **ネイティブがハンドルを追跡している最中の強制レイアウト読み取り**が関与するかを分ける。
+ *
+ *   症状が消える … L3が関与。読み取り頻度を落とす等、Lumora側で対処できる
+ *   症状が残る   … L1かL2、または真にネイティブ側。次はL1とL2を割る
+ */
+export function isRectReadDisabled(): boolean {
+  return hasFlag('noRectRead');
+}
+
 /** 選択の計測を有効にするか */
 export function isSelectionDebugEnabled(): boolean {
   return hasFlag('selDebug');

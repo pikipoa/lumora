@@ -224,6 +224,31 @@ export interface SelectionTrace {
    */
   lastAnchorFp: string;
   lastFocusFp: string;
+
+  /**
+   * 正規化されたRangeの境界（2026-08-08）。
+   *
+   * 【なぜanchor/focusだけでは足りないか】
+   * 実機で、右ハンドルをタップした直後に anchor だけが `other`（＝ワークスペースの外）へ
+   * 移った一方、`sel.toString().length` は 272 のまま変わらなかった。anchor/focus が
+   * Rangeを定義するなら、この2つは同時に成り立たない。
+   *
+   * ネイティブの選択ハンドルは anchor/focus から描画され、`toString()` と Lumora の
+   * マーカー処理（getRangeAt(0)）は Range を見る。両者が乖離しているなら、
+   * 「ハンドルだけが上に見えるのに、選ばれている文字数は正しい」が説明できる。
+   * それを確かめるには、**同じ1回のパスで両方を記録する**しかない。
+   */
+  lastRangeStartFp: string;
+  lastRangeStartOffset: number;
+  lastRangeEndFp: string;
+  lastRangeEndOffset: number;
+  /**
+   * anchorがRangeのstartでもendでもない状態（＝乖離）だったか。
+   * 目視で4つの値を突き合わせる代わりに、コードで判定して1語で出す
+   */
+  lastBoundaryDiverged: boolean;
+  /** 乖離を観測した累計回数 */
+  boundaryDivergedCount: number;
   /**
    * 右ハンドル（focus）が下方向へ動いていた時に限った、anchorの異常回数。
    * 実機で確認された非対称（右を下へ引いた時だけ壊れる）を数値で裏付ける
@@ -262,6 +287,12 @@ export function createTrace(): SelectionTrace {
     focusOvertookAfterRegrabCount: 0,
     lastAnchorFp: '-',
     lastFocusFp: '-',
+    lastRangeStartFp: '-',
+    lastRangeStartOffset: -1,
+    lastRangeEndFp: '-',
+    lastRangeEndOffset: -1,
+    lastBoundaryDiverged: false,
+    boundaryDivergedCount: 0,
   };
 }
 
@@ -303,15 +334,19 @@ export function fingerprintBoundary(node: Node | null): string {
  * Sentryにもコミットにも依存しない表示を用意する。
  */
 export function formatTraceForScreen(t: SelectionTrace): string {
-  // 1行目＝**この瞬間の選択境界**。4時点を並べて比べるのはこの行。
-  // `#`はselectionchangeの発火回数——時点をまたいで増えていなければ、
-  // 表示されている値は「新たに測った値」ではなく前の時点のまま（＝イベントが来ていない）
-  const boundary = [
+  // 1行目＝この瞬間の要約。`#`はselectionchangeの発火回数——時点をまたいで増えていなければ、
+  // 表示されている値は「新たに測った値」ではなく前の時点のまま（＝イベントが来ていない）。
+  // `DIVERGED`は、anchorがRangeのstartでもendでもない状態＝ハンドル側とRange側の乖離
+  const summary = [
     `#${t.selectionChangeCount}`,
-    `a=${t.lastAnchorFp}:${t.lastAnchorOffset}`,
-    `f=${t.lastFocusFp}:${t.lastFocusOffset}`,
     `len=${t.lastLength}`,
+    `div=${t.boundaryDivergedCount}`,
+    t.lastBoundaryDiverged ? 'DIVERGED' : 'ok',
   ].join(' ');
+  // 2行目＝ハンドルが従う側（anchor/focus）
+  const af = `a=${t.lastAnchorFp}:${t.lastAnchorOffset} f=${t.lastFocusFp}:${t.lastFocusOffset}`;
+  // 3行目＝toString()とLumoraのマーカー処理が従う側（正規化されたRange）
+  const se = `s=${t.lastRangeStartFp}:${t.lastRangeStartOffset} e=${t.lastRangeEndFp}:${t.lastRangeEndOffset}`;
   // 2行目＝累積の観測値
   const aggregate = [
     `drag#${t.dragSessionIndex}`,
@@ -322,7 +357,7 @@ export function formatTraceForScreen(t: SelectionTrace): string {
     `step=${t.minStep}/${t.maxStep}`,
     `anch=${t.lastAnchorPlacement || '-'}`,
   ].join(' ');
-  return `${boundary}\n${aggregate}`;
+  return `${summary}\n${af}\n${se}\n${aggregate}`;
 }
 
 /**

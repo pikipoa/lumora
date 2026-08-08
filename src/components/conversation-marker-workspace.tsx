@@ -533,6 +533,25 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         // lenが不変でも、境界のノードやオフセットが入れ替わっていないかはこれでしか見えない
         tr.lastAnchorFp = fingerprintBoundary(sel.anchorNode);
         tr.lastFocusFp = fingerprintBoundary(sel.focusNode);
+
+        // 正規化されたRangeの境界も**同じパスで**記録する（2026-08-08）。
+        // ネイティブのハンドルは anchor/focus から描画され、toString() と
+        // マーカー処理（下の getRangeAt(0)）は Range を見る。両者が乖離しているなら
+        // 「ハンドルだけが上に見えるのに文字数は正しい」が説明できる。
+        // 読み取りのみで、選択にも候補にも一切触れない
+        if (sel.rangeCount > 0) {
+          const debugRange = sel.getRangeAt(0);
+          tr.lastRangeStartFp = fingerprintBoundary(debugRange.startContainer);
+          tr.lastRangeStartOffset = debugRange.startOffset;
+          tr.lastRangeEndFp = fingerprintBoundary(debugRange.endContainer);
+          tr.lastRangeEndOffset = debugRange.endOffset;
+          // anchorがRangeのstartでもendでもない＝乖離。目視の突き合わせをコードで代替する
+          const a = `${tr.lastAnchorFp}:${tr.lastAnchorOffset}`;
+          const s = `${tr.lastRangeStartFp}:${tr.lastRangeStartOffset}`;
+          const e = `${tr.lastRangeEndFp}:${tr.lastRangeEndOffset}`;
+          tr.lastBoundaryDiverged = a !== s && a !== e;
+          if (tr.lastBoundaryDiverged) tr.boundaryDivergedCount++;
+        }
         if (prevAnchor > 0 && sel.anchorOffset === 0) tr.anchorCollapsedToZeroCount++;
 
         // 仮説①（DOM削除でRangeの境界点が親へせり上がる）の直接検証。

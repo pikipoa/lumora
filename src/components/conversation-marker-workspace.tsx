@@ -54,6 +54,7 @@ import {
   isObserveOnlyMode,
   isRectReadDisabled,
   isScrollerSearchCached,
+  isScrollerWalkOnly,
   isScrollHandlerDisabled,
   isSelectionDebugEnabled,
   type SelectionTrace,
@@ -840,11 +841,21 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       );
       if (owner !== instanceId) return stop();
 
-      // `?cacheScroller=1`：祖先を遡る getComputedStyle / scrollHeight の読み取り（＝強制レイアウト）を
-      // 選択イベントの経路から外し、初回1度だけに減らす。ハンドラの他の部分は動かしたまま
-      const container = isScrollerSearchCached()
-        ? (cachedScroller ??= findScrollableAncestor(anchor))
-        : findScrollableAncestor(anchor);
+      // 切り分けの3点（2026-08-07）。1変数ずつだけ違えて、症状の必要条件を特定する
+      //   通常             … 祖先走査あり／レイアウト強制読み取りあり
+      //   ?walkOnly=1（B） … 祖先走査あり／読み取り**なし**（走査の戻り値は捨てる）
+      //   ?cacheScroller=1（A/C）… 走査なし／読み取りなし（初回に解決したものを使い回す）
+      let container: HTMLElement | null;
+      if (isScrollerWalkOnly()) {
+        // 走査は同じように実行し、結果は使わない。コンテナはキャッシュ済みのものを使う——
+        // ここでnullを採用するとオートスクロールごと止まり、?noAutoScroll=1 と区別できなくなる
+        findScrollableAncestor(anchor, true);
+        container = cachedScroller ??= findScrollableAncestor(anchor);
+      } else if (isScrollerSearchCached()) {
+        container = cachedScroller ??= findScrollableAncestor(anchor);
+      } else {
+        container = findScrollableAncestor(anchor);
+      }
       if (!container) return stop();
 
       target = container;

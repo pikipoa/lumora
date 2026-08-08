@@ -101,6 +101,25 @@ export function isScrollerSearchCached(): boolean {
   return hasFlag('cacheScroller');
 }
 
+/**
+ * 実験B「走査のみ」（2026-08-07）。
+ *
+ * `?cacheScroller=1`（A/C）は、臨界イベントで findScrollableAncestor を**呼ばない**。
+ * これが正常になっても、「祖先走査そのもの」と「レイアウト強制読み取り」のどちらが
+ * 効いたのかは分からない。このフラグは走査を実行したままレイアウト読み取りだけを外し、
+ * 1変数だけ違う3点の階段を作る。
+ *
+ *   通常              走査あり／読み取りあり
+ *   ?walkOnly=1       走査あり／読み取り**なし**
+ *   ?cacheScroller=1  走査なし／読み取りなし
+ *
+ * 【落とし穴を避ける設計】走査の戻り値は捨て、コンテナはキャッシュ済みのものを使う。
+ * ここでnullを採用するとオートスクロールごと止まり、?noAutoScroll=1 と区別できなくなる。
+ */
+export function isScrollerWalkOnly(): boolean {
+  return hasFlag('walkOnly');
+}
+
 /** 選択の計測を有効にするか */
 export function isSelectionDebugEnabled(): boolean {
   return hasFlag('selDebug');

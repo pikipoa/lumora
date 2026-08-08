@@ -156,11 +156,21 @@ export function computeAutoScrollStep(
 /**
  * 実際にスクロールするコンテナ（`overflow-y: auto|scroll`かつ内容がはみ出しているもの）を
  * 祖先方向へ探す。見つからなければnull。
+ *
+ * `skipLayoutReads`（2026-08-07・切り分け実験B専用）：祖先の走査は同じように行うが、
+ * `getComputedStyle`と`scrollHeight`/`clientHeight`——**同期レイアウトを強制する読み取り**
+ * ——だけを実行しない。「この関数を選択イベント中に呼ぶこと自体」と「レイアウト強制読み取り」の
+ * どちらが症状の必要条件かを分けるために使う。常にnullを返す（＝走査のためだけに呼ぶ）。
+ * 呼び出し側はキャッシュ済みのコンテナを使うこと——ここでnullを採用してしまうと
+ * オートスクロールごと停止し、「効果まるごと停止」の実験と区別がつかなくなる。
  */
-export function findScrollableAncestor(start: Element | null): HTMLElement | null {
+export function findScrollableAncestor(
+  start: Element | null,
+  skipLayoutReads = false,
+): HTMLElement | null {
   let el: Element | null = start;
   while (el && el !== document.body && el !== document.documentElement) {
-    if (el instanceof HTMLElement) {
+    if (el instanceof HTMLElement && !skipLayoutReads) {
       const overflowY = window.getComputedStyle(el).overflowY;
       const scrollable = overflowY === 'auto' || overflowY === 'scroll';
       // +1 は小数点の丸め対策（内容がぴったり収まっている場合を除外する）

@@ -49,6 +49,7 @@ import { getRecentRealmIds, markRealmUsed, sortByRecency } from '@/lib/recentRea
 import {
   classifyAnchorPlacement,
   createTrace,
+  fingerprintBoundary,
   formatTraceForScreen,
   isAutoScrollDisabled,
   isObserveOnlyMode,
@@ -528,6 +529,10 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
         const prevFocusOffset = tr.lastFocusOffset;
         tr.lastAnchorOffset = sel.anchorOffset;
         tr.lastFocusOffset = sel.focusOffset;
+        // どのノードの何文字目かを4時点で比べられるようにする（2026-08-08）。
+        // lenが不変でも、境界のノードやオフセットが入れ替わっていないかはこれでしか見えない
+        tr.lastAnchorFp = fingerprintBoundary(sel.anchorNode);
+        tr.lastFocusFp = fingerprintBoundary(sel.focusNode);
         if (prevAnchor > 0 && sel.anchorOffset === 0) tr.anchorCollapsedToZeroCount++;
 
         // 仮説①（DOM削除でRangeの境界点が親へせり上がる）の直接検証。

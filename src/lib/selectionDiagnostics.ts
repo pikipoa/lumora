@@ -207,6 +207,23 @@ export interface SelectionTrace {
   dragSessionIndex: number;
   /** ドラッグ2回目以降に限った追い越し回数（掴み直し特有かどうかの判別） */
   focusOvertookAfterRegrabCount: number;
+
+  /**
+   * anchorNode / focusNode の指紋（2026-08-08）。
+   *
+   * 【なぜ必要になったか】
+   * `len`（＝sel.toString().length）が、右ハンドルをタップして左ハンドルが文書先頭へ
+   * ワープして見える前後の4時点すべてで不変だった（実機・272文字）。Rangeが変化すれば
+   * selectionchangeが必ず発火し、計測ブロックはハンドラ先頭にあるため必ずlenが更新される。
+   * よって**Rangeのテキスト内容は動いていない**。
+   *
+   * 残る問いは「同じ長さのまま、境界のノードやオフセットが入れ替わっていないか」。
+   * それを見るには長さでは足りず、**どのノードの何文字目か**が要る。
+   * 本文は一切保持しない——data-message-idの末尾4文字と、メッセージ内のテキストノードの
+   * 通し番号だけを持つ（PII方針：src/lib/sentry.ts）。
+   */
+  lastAnchorFp: string;
+  lastFocusFp: string;
   /**
    * 右ハンドル（focus）が下方向へ動いていた時に限った、anchorの異常回数。
    * 実機で確認された非対称（右を下へ引いた時だけ壊れる）を数値で裏付ける
@@ -243,7 +260,39 @@ export function createTrace(): SelectionTrace {
     focusOvertookAnchorCount: 0,
     dragSessionIndex: 1,
     focusOvertookAfterRegrabCount: 0,
+    lastAnchorFp: '-',
+    lastFocusFp: '-',
   };
+}
+
+/**
+ * 選択の境界ノードの指紋を返す（2026-08-08）。**本文は一切読まない。**
+ *
+ * 形式：`<data-message-idの末尾4文字>#<メッセージ内のテキストノード通し番号>`
+ *   例）`3f2a#2`
+ * 本文の外にいる場合は classifyAnchorPlacement の分類をそのまま返す（`document-root` 等）。
+ * 要素ノードを指している場合は番号が `e` になる——DOM削除で境界点が親へせり上がった時の印。
+ *
+ * TreeWalkerによるDOM走査のみで、`getComputedStyle`も`getBoundingClientRect`も呼ばない。
+ * レイアウトを強制しないため、保留中のレイアウト仮説を汚さずに測れる。
+ */
+export function fingerprintBoundary(node: Node | null): string {
+  if (!node) return '-';
+  const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element);
+  const msg = el?.closest?.('[data-message-id]') as HTMLElement | null;
+  if (!msg) return classifyAnchorPlacement(node);
+
+  const id = (msg.getAttribute('data-message-id') ?? '').slice(-4);
+  if (node.nodeType !== Node.TEXT_NODE) return `${id}#e`;
+
+  const walker = document.createTreeWalker(msg, NodeFilter.SHOW_TEXT);
+  let i = 0;
+  while (walker.nextNode()) {
+    if (walker.currentNode === node) return `${id}#${i}`;
+    i++;
+  }
+  // メッセージ配下に見つからない＝DOMから切り離されている可能性
+  return `${id}#?`;
 }
 
 /**
@@ -254,7 +303,17 @@ export function createTrace(): SelectionTrace {
  * Sentryにもコミットにも依存しない表示を用意する。
  */
 export function formatTraceForScreen(t: SelectionTrace): string {
-  const parts = [
+  // 1行目＝**この瞬間の選択境界**。4時点を並べて比べるのはこの行。
+  // `#`はselectionchangeの発火回数——時点をまたいで増えていなければ、
+  // 表示されている値は「新たに測った値」ではなく前の時点のまま（＝イベントが来ていない）
+  const boundary = [
+    `#${t.selectionChangeCount}`,
+    `a=${t.lastAnchorFp}:${t.lastAnchorOffset}`,
+    `f=${t.lastFocusFp}:${t.lastFocusOffset}`,
+    `len=${t.lastLength}`,
+  ].join(' ');
+  // 2行目＝累積の観測値
+  const aggregate = [
     `drag#${t.dragSessionIndex}`,
     `over=${t.focusOvertookAnchorCount}`,
     `overRe=${t.focusOvertookAfterRegrabCount}`,
@@ -262,9 +321,8 @@ export function formatTraceForScreen(t: SelectionTrace): string {
     `minSt=${t.minScrollTop === Number.MAX_SAFE_INTEGER ? '-' : t.minScrollTop}`,
     `step=${t.minStep}/${t.maxStep}`,
     `anch=${t.lastAnchorPlacement || '-'}`,
-    `len=${t.lastLength}`,
-  ];
-  return parts.join(' ');
+  ].join(' ');
+  return `${boundary}\n${aggregate}`;
 }
 
 /**

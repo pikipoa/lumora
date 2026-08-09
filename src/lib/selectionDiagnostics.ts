@@ -360,6 +360,104 @@ export function formatTraceForScreen(t: SelectionTrace): string {
   return `${summary}\n${af}\n${se}\n${aggregate}`;
 }
 
+// ---------------------------------------------------------------------------
+// イベントログ（2026-08-09）
+//
+// 【なぜ集計ではなく時系列が必要になったか】
+// 「左ハンドルが画面外の状態で右ハンドルをタップすると、左ハンドルが文書TOPへ移動する」が
+// **Lumora以外の外部サイトでも、同じブラウザで再現した**（実機報告）。かつ別のブラウザでは
+// 再現しない。この時点で問うべきは「Lumoraのどのコードか」ではなく
+// 「そのタップの瞬間、ブラウザのSelectionそのものが変わっているのか」になる。
+//
+// それを見るには、最新値の集計では足りない。**1イベントごとのスナップショットを並べる**必要がある。
+//
+// 【誰が動かしたかを直接割る仕組み】
+// selectionchange を Lumora の全ハンドラより**前**（`sc<`）と**後**（`sc>`）の2箇所で記録する。
+//   `sc<` の時点で既に壊れている … ブラウザが変更した
+//   `sc<` は正常で `sc>` が壊れている … Lumoraのハンドラが変更した
+//
+// 【本文は記録しない】長さ・オフセット・座標・ノードの通し番号のみ（PII方針）。
+// ---------------------------------------------------------------------------
+
+/** 画面に出す行数。手で読める量に抑える */
+const EVENT_LOG_VISIBLE = 6;
+/** クリップボードへ渡す保持件数 */
+const EVENT_LOG_MAX = 40;
+
+const eventLog: string[] = [];
+let eventSeq = 0;
+
+/**
+ * 境界点（node, offset）の**折りたたんだ**矩形を返す。
+ * 注意：`getBoundingClientRect`はレイアウトを強制する。`?selDebug=1`のときしか呼ばれないが、
+ * 計測そのものが対象へ影響する可能性は残る（外部サイトでも再現した以上、影響は小さいと考える）。
+ */
+function collapsedRectAt(node: Node, offset: number): DOMRect | null {
+  try {
+    const r = document.createRange();
+    r.setStart(node, offset);
+    r.setEnd(node, offset);
+    return r.getBoundingClientRect();
+  } catch {
+    return null;
+  }
+}
+
+/** 境界1つ分の記述。`<指紋>:<offset>/t<画面Y>` ＋ 画面外なら `!OFF` */
+function describeBoundary(node: Node | null, offset: number): string {
+  if (!node) return '-';
+  const fp = fingerprintBoundary(node);
+  const kind = node.nodeType === Node.TEXT_NODE ? '' : `(${node.nodeName})`;
+  const rect = collapsedRectAt(node, offset);
+  if (!rect) return `${fp}:${offset}/t?${kind}`;
+  const top = Math.round(rect.top);
+  // ビューポートの外か。これが CASE A（内）と CASE B（外）のラベルになる
+  const off = rect.bottom < 0 || rect.top > window.innerHeight;
+  return `${fp}:${offset}/t${top}${off ? '!OFF' : ''}${kind}`;
+}
+
+/**
+ * 今この瞬間の選択を1行にして記録する。`kind`はイベント種別
+ * （`sc<` `sc>` `pd` `pu` `ts` `te`）。`extra`にはLumoraが保持している候補などを渡す。
+ * 返り値は画面表示用（直近数件）。
+ */
+export function logSelectionEvent(kind: string, extra = ''): string {
+  if (typeof window === 'undefined') return '';
+  const sel = window.getSelection();
+  const y = Math.round(window.scrollY);
+  eventSeq++;
+  let line: string;
+  if (!sel) {
+    line = `${eventSeq} ${kind} y${y} nosel`;
+  } else {
+    line = [
+      `${eventSeq} ${kind}`,
+      `y${y}`,
+      `rc${sel.rangeCount}`,
+      `L${sel.toString().length}`,
+      `a=${describeBoundary(sel.anchorNode, sel.anchorOffset)}`,
+      `f=${describeBoundary(sel.focusNode, sel.focusOffset)}`,
+      extra,
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+  eventLog.push(line);
+  if (eventLog.length > EVENT_LOG_MAX) eventLog.shift();
+  return eventLog.slice(-EVENT_LOG_VISIBLE).join('\n');
+}
+
+/** 保持している全件。クリップボードへ渡す用 */
+export function getFullEventLog(): string {
+  return eventLog.join('\n');
+}
+
+/** 記録を捨てる。CASE AとCASE Bを別々に取るために使う */
+export function clearEventLog(): void {
+  eventLog.length = 0;
+  eventSeq = 0;
+}
+
 /**
  * anchorがどこにいるかを分類する（2026-08-06）。
  * 「1段せり上がった」のか「文書ルートまで完全に失われた」のかで機序が変わるため、

@@ -48,9 +48,12 @@ import { computeSegments, extractContext, resolveMarkerPosition, type MarkerLaye
 import { getRecentRealmIds, markRealmUsed, sortByRecency } from '@/lib/recentRealms';
 import {
   classifyAnchorPlacement,
+  clearEventLog,
   createTrace,
   fingerprintBoundary,
   formatTraceForScreen,
+  getFullEventLog,
+  logSelectionEvent,
   isAutoScrollDisabled,
   isObserveOnlyMode,
   isRectReadDisabled,
@@ -213,6 +216,8 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   /** 計測の画面表示（?selDebug=1のみ）。送信をコミット経路に依存させると、
    *  壊れた回に限って送れない可能性があるため、スクリーンショットで判定できるようにする */
   const [traceReadout, setTraceReadout] = useState('');
+  /** 診断専用のイベントログ表示（?selDebug=1のみ・一時的） */
+  const [eventLog, setEventLog] = useState('');
   /** タッチ時に「この範囲にマーカー」バーを出すかどうか（2026-08-02）。
    *  refと違って再描画が要るのでstateで持つ。中身はrefと同じ候補 */
   const [touchCandidate, setTouchCandidate] = useState<PendingSelection | null>(null);
@@ -465,6 +470,46 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   useEffect(() => {
     commitCandidateRef.current = commitCandidate;
   });
+
+  /**
+   * 診断専用のイベントログ・**前**リスナー（2026-08-09・一時的）。
+   *
+   * この`useEffect`は確定ロジックのeffectより**先に宣言されている**ため、
+   * `selectionchange`のリスナーが最初に登録され、**Lumoraのどのハンドラよりも先**に走る。
+   * ここで記録した値（`sc<`）と、全ハンドラの後で記録する値（`sc>`）を比べれば、
+   * 「ブラウザが選択を変えたのか、Lumoraのハンドラが変えたのか」が直接分かる。
+   *
+   * `?selDebug=1`のときだけ登録する——フラグが無ければリスナーすら張らないので、
+   * 通常の動作には一切影響しない。
+   */
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (!isSelectionDebugEnabled()) return;
+    // Lumoraが保持している候補のオフセット。ブラウザ側の値とずれていないかを見る
+    const candidateExtra = () => {
+      const c = candidateRef.current;
+      return c ? `c=${c.start}-${c.end}` : 'c=-';
+    };
+    const onSelectionChangePre = () => setEventLog(logSelectionEvent('sc<', candidateExtra()));
+    // 選択ハンドルの操作はブラウザ自身のUI操作で、これらはページへ配信されない想定。
+    // **配信されないこと自体**を記録で確かめる（行が出なければ配信されていない）
+    const onPointerDownLog = (e: PointerEvent) => setEventLog(logSelectionEvent(`pd:${e.pointerType}`));
+    const onPointerUpLog = (e: PointerEvent) => setEventLog(logSelectionEvent(`pu:${e.pointerType}`));
+    const onTouchStartLog = () => setEventLog(logSelectionEvent('ts'));
+    const onTouchEndLog = () => setEventLog(logSelectionEvent('te'));
+    document.addEventListener('selectionchange', onSelectionChangePre);
+    document.addEventListener('pointerdown', onPointerDownLog);
+    document.addEventListener('pointerup', onPointerUpLog);
+    document.addEventListener('touchstart', onTouchStartLog);
+    document.addEventListener('touchend', onTouchEndLog);
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChangePre);
+      document.removeEventListener('pointerdown', onPointerDownLog);
+      document.removeEventListener('pointerup', onPointerUpLog);
+      document.removeEventListener('touchstart', onTouchStartLog);
+      document.removeEventListener('touchend', onTouchEndLog);
+    };
+  }, []);
 
   // Step6スパイクの結論：ブラウザ標準Selection APIで範囲を読み取る。
   //
@@ -913,6 +958,21 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
       stop();
     };
   }, [instanceId]);
+
+  /**
+   * 診断専用のイベントログ・**後**リスナー（2026-08-09・一時的）。
+   *
+   * この`useEffect`は確定ロジックとオートスクロールの**両方より後に宣言されている**ため、
+   * `selectionchange`のリスナーが最後に登録され、Lumoraの全ハンドラが走り終えた後に記録する。
+   * 前リスナー（`sc<`）との差が、そのまま「Lumoraのハンドラが選択を変えたか」の答えになる。
+   */
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (!isSelectionDebugEnabled()) return;
+    const onSelectionChangePost = () => setEventLog(logSelectionEvent('sc>'));
+    document.addEventListener('selectionchange', onSelectionChangePost);
+    return () => document.removeEventListener('selectionchange', onSelectionChangePost);
+  }, []);
 
   // スクロール中は確定バーを隠す（2026-08-02）。
   //
@@ -1514,9 +1574,34 @@ export function ConversationMarkerWorkspace({ conversationId, jumpToMarkerId, se
   // 計測の画面表示（?selDebug=1のみ・一時的）。画面最上部に固定し、選択が壊れた状態でも
   // 必ず読めるようにする。userSelect:'none'で本文の選択に巻き込まれないようにする
   const debugReadout =
-    isSelectionDebugEnabled() && traceReadout ? (
+    isSelectionDebugEnabled() ? (
       <View style={styles.debugReadout} testID="selection-debug-readout">
-        <ThemedText style={styles.debugReadoutText}>{traceReadout}</ThemedText>
+        {traceReadout ? (
+          <ThemedText style={styles.debugReadoutText}>{traceReadout}</ThemedText>
+        ) : null}
+        {eventLog ? <ThemedText style={styles.debugReadoutText}>{eventLog}</ThemedText> : null}
+        {/* 実機はシークレットウィンドウでスクリーンショットが撮れず、手書き転記に頼っていた。
+            転記ミスで一度仮説を誤ったため、記録はクリップボード経由で渡せるようにする */}
+        <View style={styles.debugReadoutActions}>
+          <Pressable
+            onPress={() => {
+              void navigator.clipboard?.writeText(getFullEventLog());
+            }}
+            testID="selection-debug-copy"
+          >
+            <ThemedText style={styles.debugReadoutButton}>[COPY]</ThemedText>
+          </Pressable>
+          {/* CASE A と CASE B を別々に取るため、計測の合間に記録を捨てられるようにする */}
+          <Pressable
+            onPress={() => {
+              clearEventLog();
+              setEventLog('');
+            }}
+            testID="selection-debug-clear"
+          >
+            <ThemedText style={styles.debugReadoutButton}>[CLEAR]</ThemedText>
+          </Pressable>
+        </View>
       </View>
     ) : null;
 
@@ -1732,6 +1817,8 @@ const styles = StyleSheet.create({
     userSelect: 'none',
   } as object,
   debugReadoutText: { color: '#FFFFFF', fontSize: 11 },
+  debugReadoutActions: { flexDirection: 'row', gap: Spacing.two, marginTop: Spacing.half },
+  debugReadoutButton: { color: '#7DD3FC', fontSize: 12, fontWeight: '700' },
   /** またがっている旨の案内。確定ボタンと同じ位置に出すが、押すものではないので角丸は控えめ */
   markBarNotice: {
     paddingVertical: Spacing.three,

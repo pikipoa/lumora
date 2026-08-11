@@ -46,6 +46,7 @@ function AppShell() {
         <Stack.Screen name="login" options={{ title: t.routes.login }} />
         <Stack.Screen name="reset-password" options={{ title: t.routes.resetPassword }} />
         <Stack.Screen name="import" options={{ title: t.routes.import }} />
+        <Stack.Screen name="export-guide" options={{ title: t.routes.exportGuide }} />
         <Stack.Screen name="import-summary" options={{ title: t.routes.importSummary }} />
         <Stack.Screen name="inbox" options={{ title: t.routes.inbox }} />
         <Stack.Screen name="conversation/[id]/index" options={{ title: t.routes.conversation }} />

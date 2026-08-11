@@ -24,6 +24,7 @@ export const ja = {
     login: 'ログイン',
     resetPassword: 'パスワード再設定',
     import: 'インポート',
+    exportGuide: 'エクスポート手順',
     importSummary: 'インポート完了',
     inbox: '会話一覧',
     conversation: '会話詳細',
@@ -113,6 +114,8 @@ export const ja = {
 
   importScreen: {
     title: '会話データのアップロード',
+    // 対応形式を読んで「で、それはどこで手に入るのか」と詰まる位置に置く導線
+    exportGuideLink: 'エクスポート方法が分からない方はこちら',
     supportedFormats: '対応形式',
     formatChatgpt: '・ChatGPT：公式エクスポートのZIP（conversations.json）',
     formatGemini: '・Gemini：Google TakeoutのZIP（「My Activity」→「Gemini Apps」、JSON形式を指定）',
@@ -336,5 +339,177 @@ export const ja = {
     },
     tapNext: 'タップして次へ',
     tapClose: 'タップして閉じる',
+  },
+
+  /**
+   * S3.5 エクスポート手順（2026-08-09）。原本は`export-guide.md`。
+   *
+   * 【なぜアプリ内に持つか】Lumoraは最初のユーザー行動が「他社のサイトで設定画面を辿り、
+   * 形式を正しく選び、最大7日待って戻ってくる」であり、製品が何かを返す前に長い前提作業がある。
+   * ここで外部リンクへ逃がすと戻ってこない。
+   *
+   * 【blockの形をそろえている理由】`body`と`steps`のどちらか片方だけを持つ形にすると、
+   * 配列の要素型がユニオンになり参照側で型が絞れない。使わない側は空にする。
+   */
+  exportGuide: {
+    title: 'エクスポート手順',
+    intro: '取り込むためのファイルを、各サービスから取り出す手順です。',
+    chooserTitle: 'どれを選べばいい？',
+    chooserWhat: '取り出せるもの',
+    chooserTime: 'かかる時間',
+    chooserRows: [
+      { service: 'ChatGPT', what: '全会話をまとめて', time: '数分〜最大7日' },
+      { service: 'Gemini', what: '全会話をまとめて', time: '数分〜数時間' },
+      { service: 'Claude', what: '全会話をまとめて', time: '数時間' },
+      { service: 'Perplexity', what: '1スレッドずつ', time: 'すぐ' },
+    ],
+    chooserNote:
+      'できあがったファイルを、前の画面の「ファイルを選択してインポート」から渡せば取り込めます。',
+    takeoutUrl: 'https://takeout.google.com',
+    takeoutLinkLabel: 'takeout.google.com を開く',
+    sections: [
+      {
+        name: 'ChatGPT',
+        blocks: [
+          {
+            heading: 'Android / iPhone・iPad（アプリ）',
+            body: '',
+            steps: [
+              'サイドバー（☰）を開く',
+              'プロフィールアイコンをタップ',
+              'データ管理（Data Controls）',
+              'データをエクスポート（Export Data）',
+              '確認画面で実行',
+            ],
+          },
+          {
+            heading: 'Windows / Mac（ブラウザ）',
+            body: '',
+            steps: [
+              'プロフィールアイコンをクリック',
+              'Settings',
+              'Data Controls',
+              'Export Data',
+              '確認画面で実行',
+            ],
+          },
+          {
+            heading: 'スマホのブラウザからでもできます',
+            body: 'ChatGPTのWeb版にログインすれば、上のPC版と同じ手順で進められます。入口が違うのはアプリ版だけです。',
+            steps: [],
+          },
+          {
+            heading: '実行したあと',
+            body: '',
+            steps: [
+              '確認メールが届く',
+              'メール内の「Download data export」を開く',
+              'ZIPファイルがダウンロードされる',
+              'このZIPをそのままLumoraへ渡す（解凍しなくて構いません）',
+            ],
+          },
+        ],
+        warnings: [
+          '準備に最大7日かかることがあります。ダウンロードリンクには有効期限があるので、メールが届いたら早めに受け取ってください。',
+          'たくさん使っている方は、ZIPの中のconversations.jsonが番号付きで複数に分かれていることがあります。そのまま渡して大丈夫です。',
+        ],
+      },
+      {
+        name: 'Gemini（Google Takeout経由）',
+        blocks: [
+          {
+            heading: '',
+            body: 'Geminiの会話は、Google Takeoutという別のサービスから取り出します。途中に2つ間違えやすい箇所があります。',
+            steps: [],
+          },
+          {
+            heading: '',
+            body: '',
+            steps: [
+              'takeout.google.com を開く',
+              '「選択をすべて解除」を押す',
+              '一覧から「マイ アクティビティ」だけにチェックを入れる',
+              '「マイ アクティビティ」の中の「HTML形式」ボタンを押し、JSONに変更してOK',
+              '同じく中の「すべてのアクティビティデータが含まれます」ボタン →「選択をすべて解除」→「Gemini アプリ」だけにチェックしてOK',
+              '一番下の「次のステップ」→ 配信方法とファイル形式（.zip）を選んで「エクスポートを作成」',
+              'メールで通知が届いたらZIPをダウンロードし、解凍する',
+              'Takeout / マイアクティビティ / Gemini アプリ / MyActivity.json をLumoraへ渡す',
+            ],
+          },
+        ],
+        warnings: [
+          '手順4が最重要です。HTML形式のままだとLumoraは読み込めません。',
+          '手順5が間違えやすい箇所です。一覧の上のほうにある単独の「Gemini」項目には、Gemsの設定データしか入っておらず、チャット履歴は含まれません。かならず「マイ アクティビティ」の中から「Gemini アプリ」を選んでください。',
+        ],
+      },
+      {
+        name: 'Claude',
+        blocks: [
+          {
+            heading: 'Web版、またはClaude Desktopから',
+            body: '',
+            steps: [
+              '設定',
+              'プライバシー',
+              'データをエクスポート',
+              '数時間後、メールでダウンロードリンクが届く',
+              'ZIPをダウンロードして、そのままLumoraへ渡す',
+            ],
+          },
+        ],
+        warnings: [
+          'ダウンロードリンクの有効期限は24時間です。メールが届いたその日のうちに受け取ってください。',
+          'iOS / Androidアプリからはエクスポートできません。Web版かDesktop版を使ってください。',
+        ],
+      },
+      {
+        name: 'Perplexity',
+        blocks: [
+          {
+            heading: '',
+            body: 'Perplexityには全件をまとめて取り出す機能がありません。残しておきたいスレッドを、1つずつ保存します。',
+            steps: [],
+          },
+          {
+            heading: '',
+            body: '',
+            steps: [
+              'ログインし、Libraryなどから対象のスレッドを開く',
+              '回答エリアの右上あたりの共有アイコン、またはその隣の「…」を開く',
+              'Export as Markdown / PDF / DOCX から、Markdownを選ぶ',
+            ],
+          },
+          {
+            heading: 'メニューが見つからないとき',
+            body: '',
+            steps: [
+              'ページを再読み込みする',
+              '回答を最後まで表示させる（途中だとメニューが出ないことがあります）',
+              '個別の回答の上部にある共有アイコンを確認する',
+              'それでも無ければ、本文を全選択してテキストエディタに貼り付けて保存する（最終手段）',
+            ],
+          },
+        ],
+        warnings: [
+          '「Copy link」は保存になりません。参照用のURLを作る機能なので、リンク先が消えれば内容も見られなくなります。ファイルとして手元に残してください。',
+        ],
+      },
+    ],
+    troubleTitle: '困ったとき',
+    troubles: [
+      {
+        q: 'ファイルを選んでもエラーになる',
+        a: 'Geminiの場合、形式がHTMLのままの可能性があります。JSONで取り直してください。',
+      },
+      {
+        q: 'Geminiの会話が1件も入っていない',
+        a: '単独の「Gemini」項目を選んでいる可能性があります。「マイ アクティビティ」→「Gemini アプリ」で取り直してください。',
+      },
+      {
+        q: 'ダウンロードリンクが切れた',
+        a: 'もう一度エクスポートを申請してください。',
+      },
+    ],
+    footnote: '各サービスの画面は更新されることがあります。手順が合わない場合はお知らせください。',
   },
 };

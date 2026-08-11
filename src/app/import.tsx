@@ -69,6 +69,12 @@ export default function ImportScreen() {
           <ThemedText type="small">{t.importScreen.formatClaudeCode}</ThemedText>
         </ThemedView>
 
+        {/* 形式の一覧を読んで「で、それはどこで手に入るのか」と止まる位置に置く。
+            ボタンにしないのは、主要動線（ファイルを選択）と競合させないため */}
+        <Pressable onPress={() => router.push('/export-guide')} testID="export-guide-link">
+          <ThemedText type="link">{t.importScreen.exportGuideLink}</ThemedText>
+        </Pressable>
+
         <Pressable
           style={[styles.button, busy && styles.buttonDisabled]}
           onPress={startImport}
